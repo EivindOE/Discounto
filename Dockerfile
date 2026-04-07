@@ -1,21 +1,26 @@
-FROM node:18-alpine
+FROM node:22-alpine AS base
 RUN apk add --no-cache openssl
-
-EXPOSE 3000
-
 WORKDIR /app
 
+FROM base AS deps
+COPY package.json package-lock.json* ./
+COPY prisma ./prisma
+RUN npm ci
+
+FROM deps AS build
+COPY . .
+RUN npm run build
+
+FROM base AS runner
 ENV NODE_ENV=production
 
 COPY package.json package-lock.json* ./
-
+COPY prisma ./prisma
 RUN npm ci --omit=dev && npm cache clean --force
-# Remove CLI packages since we don't need them in production by default.
-# Remove this line if you want to run CLI commands in your container.
-RUN npm remove @shopify/cli
 
-COPY . .
+COPY --from=build /app/build ./build
+COPY --from=build /app/public ./public
 
-RUN npm run build
+EXPOSE 3000
 
 CMD ["npm", "run", "docker-start"]
