@@ -1,4 +1,4 @@
-import type { LoaderFunctionArgs } from "@remix-run/node";
+import { json, type LoaderFunctionArgs } from "@remix-run/node";
 import { listVisibleStorefrontCampaignsForShop } from "../models/discount.server";
 
 function getShopFromRequest(request: Request) {
@@ -20,13 +20,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const shop = getShopFromRequest(request);
 
   if (!shop) {
-    return Response.json({ campaigns: [] }, { headers });
+    return json({ campaigns: [] }, { headers });
   }
 
   try {
     const campaigns = await listVisibleStorefrontCampaignsForShop(shop);
 
-    return Response.json(
+    return json(
       {
         campaigns: campaigns.map((campaign) => ({
           id: campaign.id,
@@ -46,6 +46,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     );
   } catch (error) {
     console.error("Discounto storefront proxy failed", error);
-    return Response.json({ campaigns: [] }, { headers });
+    return json({ campaigns: [] }, { headers });
   }
 };
