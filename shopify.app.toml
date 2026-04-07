@@ -23,8 +23,8 @@ optional_scopes = [ ]
 use_legacy_install_flow = false
 
 [app_proxy]
-url = "/proxy/discounto"
-subpath = "discounto"
+url = "/proxy/better-discounts"
+subpath = "better-discounts"
 prefix = "apps"
 
 [auth]
