@@ -1,7 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { redirect } from "@remix-run/node";
 import { Form, useActionData, useLoaderData } from "@remix-run/react";
-import { BillingInterval } from "@shopify/shopify-app-remix/server";
 import {
   Badge,
   Banner,
@@ -17,7 +16,6 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import {
   PLAN_ORDER,
-  type BillingCycle,
   getPlanActionLabel,
   type PlanTier,
   plansByTier,
@@ -29,45 +27,15 @@ import {
 import { updateShopPlan } from "../models/shop-settings.server";
 import { authenticate } from "../shopify.server";
 
-function getBillingCycleForSubscription(
-  subscription?: {
-    name: string;
-    lineItems?: Array<{
-      plan?: {
-        pricingDetails?: {
-          interval?: string;
-        };
-      };
-    }>;
-  } | null,
-): BillingCycle | null {
-  const interval = subscription?.lineItems?.[0]?.plan?.pricingDetails?.interval;
-
-  if (interval === BillingInterval.Annual) {
-    return "YEARLY";
-  }
-
-  if (interval === BillingInterval.Every30Days) {
-    return "MONTHLY";
-  }
-
-  return null;
-}
-
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
   const { settings, activeSubscriptions } = await syncPlanFromBilling({
     shop: session.shop,
     billing,
   });
-  const currentSubscription =
-    activeSubscriptions.find((subscription) => subscription.name === settings.plan) ??
-    activeSubscriptions[0] ??
-    null;
 
   return {
     currentPlan: settings.plan,
-    currentBillingCycle: getBillingCycleForSubscription(currentSubscription),
     activeSubscriptions,
     plans: PLAN_ORDER.map((tier) => plansByTier[tier]),
   };
@@ -77,7 +45,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
   const formData = await request.formData();
   const requestedPlan = String(formData.get("plan") ?? "") as PlanTier;
-  const billingCycle = String(formData.get("billingCycle") ?? "MONTHLY") as BillingCycle;
 
   if (!PLAN_ORDER.includes(requestedPlan)) {
     return {
@@ -85,23 +52,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     };
   }
 
-  if (billingCycle !== "MONTHLY" && billingCycle !== "YEARLY") {
-    return {
-      error: "Choose a valid billing cycle before continuing.",
-    };
-  }
-
   const { settings, activeSubscriptions } = await syncPlanFromBilling({
     shop: session.shop,
     billing,
   });
-  const currentSubscription =
-    activeSubscriptions.find((subscription) => subscription.name === requestedPlan) ??
-    activeSubscriptions[0] ??
-    null;
-  const currentBillingCycle = getBillingCycleForSubscription(currentSubscription);
 
-  if (requestedPlan === settings.plan && currentBillingCycle === billingCycle) {
+  if (requestedPlan === settings.plan) {
     return {
       success: `You are already on the ${plansByTier[requestedPlan].name} plan.`,
     };
@@ -124,29 +80,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return redirect("/app/billing");
   }
 
-  const plan = plansByTier[requestedPlan];
-  const amount =
-    billingCycle === "YEARLY" ? plan.annualPrice ?? plan.monthlyPrice : plan.monthlyPrice;
-  const interval =
-    billingCycle === "YEARLY" ? BillingInterval.Annual : BillingInterval.Every30Days;
-
   return billing.request({
     plan: requestedPlan,
     isTest: isTestBillingRequest(),
     returnUrl: `${process.env.SHOPIFY_APP_URL}/app/billing`,
-    trialDays: plan.trialDays,
-    lineItems: [
-      {
-        amount,
-        currencyCode: "USD",
-        interval,
-      },
-    ],
   });
 };
 
 export default function BillingPage() {
-  const { currentPlan, currentBillingCycle, plans } = useLoaderData<typeof loader>();
+  const { currentPlan, plans } = useLoaderData<typeof loader>();
   const actionData = useActionData<{ error?: string; success?: string }>();
 
   return (
@@ -207,46 +149,19 @@ export default function BillingPage() {
                 ) : (
                   <BlockStack gap="200">
                     <Text as="p" variant="bodySm" tone="subdued">
-                      14-day trial on both billing cycles.
+                      Shopify will show the available monthly and yearly billing
+                      options for this plan.
                     </Text>
-                    <InlineStack gap="200">
-                      <Form method="post">
-                        <input type="hidden" name="plan" value={plan.tier} />
-                        <input type="hidden" name="billingCycle" value="MONTHLY" />
-                        <Button
-                          submit
-                          variant={
-                            plan.tier === currentPlan && currentBillingCycle === "MONTHLY"
-                              ? "secondary"
-                              : "primary"
-                          }
-                          disabled={
-                            plan.tier === currentPlan && currentBillingCycle === "MONTHLY"
-                          }
-                        >
-                          {plan.monthlyPriceLabel}
-                        </Button>
-                      </Form>
-                      {plan.annualPriceLabel ? (
-                        <Form method="post">
-                          <input type="hidden" name="plan" value={plan.tier} />
-                          <input type="hidden" name="billingCycle" value="YEARLY" />
-                          <Button
-                            submit
-                            variant={
-                              plan.tier === currentPlan && currentBillingCycle === "YEARLY"
-                                ? "secondary"
-                                : "primary"
-                            }
-                            disabled={
-                              plan.tier === currentPlan && currentBillingCycle === "YEARLY"
-                            }
-                          >
-                            {plan.annualPriceLabel}
-                          </Button>
-                        </Form>
-                      ) : null}
-                    </InlineStack>
+                    <Form method="post">
+                      <input type="hidden" name="plan" value={plan.tier} />
+                      <Button
+                        submit
+                        variant={plan.tier === currentPlan ? "secondary" : "primary"}
+                        disabled={plan.tier === currentPlan}
+                      >
+                        {getPlanActionLabel(plan, currentPlan)}
+                      </Button>
+                    </Form>
                   </BlockStack>
                 )}
               </BlockStack>
