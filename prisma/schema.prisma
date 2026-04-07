@@ -1,0 +1,105 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
+// enough when changing adapters.
+// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+datasource db {
+  provider = "sqlite"
+  url      = "file:dev.sqlite"
+}
+
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+enum PlanTier {
+  FREE
+  PLUS
+  BUSINESS
+}
+
+enum DiscountStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum DiscountKind {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum CampaignSyncStatus {
+  DRAFT
+  SYNCED
+  SYNC_FAILED
+}
+
+model ShopSettings {
+  id                String             @id @default(cuid())
+  shop              String             @unique
+  plan              PlanTier           @default(FREE)
+  productLimit      Int                @default(10)
+  billingStatus     String             @default("inactive")
+  activeChargeId    String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  discountCampaigns DiscountCampaign[]
+}
+
+model DiscountCampaign {
+  id                String             @id @default(cuid())
+  shop              String
+  title             String
+  status            DiscountStatus     @default(DRAFT)
+  syncStatus        CampaignSyncStatus @default(DRAFT)
+  discountKind      DiscountKind
+  discountValue     Float
+  currencyCode      String             @default("USD")
+  badgeText         String?
+  shopifyDiscountId String?
+  lastSyncError     String?
+  startsAt          DateTime?
+  endsAt            DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  shopSettings      ShopSettings       @relation(fields: [shop], references: [shop], onDelete: Cascade)
+  products          DiscountProduct[]
+
+  @@index([shop, status])
+}
+
+model DiscountProduct {
+  id            String           @id @default(cuid())
+  campaignId    String
+  productGid    String
+  productTitle  String?
+  productHandle String?
+  imageUrl      String?
+  createdAt     DateTime         @default(now())
+  campaign      DiscountCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, productGid])
+  @@index([productGid])
+}

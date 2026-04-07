@@ -1,0 +1,196 @@
+{% liquid
+  assign current_variant = product.selected_or_first_available_variant
+  assign compare_price = current_variant.compare_at_price
+  assign current_price = current_variant.price
+  assign has_compare_price = false
+
+  if compare_price and compare_price > current_price
+    assign has_compare_price = true
+    assign savings_amount = compare_price | minus: current_price
+    assign savings_percent = savings_amount | times: 100.0 | divided_by: compare_price | round
+    assign savings_formatted = savings_amount | money
+  endif
+
+  assign label_text = block.settings.custom_label
+  if label_text == blank and has_compare_price
+    if block.settings.label_mode == 'sale'
+      assign label_text = 'Sale ' | append: savings_percent | append: '%'
+    elsif block.settings.label_mode == 'percent_only'
+      assign label_text = '-' | append: savings_percent | append: '%'
+    elsif block.settings.label_mode == 'amount'
+      assign label_text = 'Save ' | append: savings_formatted
+    else
+      assign label_text = 'Save ' | append: savings_percent | append: '%'
+    endif
+  endif
+
+  if block.settings.savings_prefix != blank
+    assign savings_line = block.settings.savings_prefix | rstrip | append: ' ' | append: savings_formatted
+  else
+    assign savings_line = savings_formatted
+  endif
+%}
+
+{% if product %}
+  <div
+    class="bd-badge--product bd-theme-{{ block.settings.theme_style }}"
+    data-bd-product-handle="{{ product.handle }}"
+    data-bd-price-cents="{{ current_variant.price }}"
+    data-bd-currency="{{ cart.currency.iso_code | default: shop.currency }}"
+    data-bd-label-mode="{{ block.settings.label_mode }}"
+    data-bd-custom-label="{{ block.settings.custom_label | escape }}"
+    data-bd-savings-prefix="{{ block.settings.savings_prefix | escape }}"
+    data-bd-show-badge="{{ block.settings.show_badge }}"
+    data-bd-show-savings-line="{{ block.settings.show_savings_line }}"
+    data-bd-show-price-row="{{ block.settings.show_price_row }}"
+    {{ block.shopify_attributes }}
+    style="
+      --bd-accent: {{ block.settings.accent_color }};
+      --bd-text: {{ block.settings.text_color }};
+      --bd-radius: {{ block.settings.corner_radius }}px;
+      --bd-badge-text: {{ block.settings.badge_text_color }};
+      --bd-savings-color: {{ block.settings.savings_color }};
+    "
+  >
+    {% if has_compare_price %}
+      {% if block.settings.show_badge %}
+        <span class="bd-badge__pill">{{ label_text }}</span>
+      {% endif %}
+
+      {% if block.settings.show_savings_line %}
+        <span class="bd-badge__savings">{{ savings_line }}</span>
+      {% endif %}
+
+      {% if block.settings.show_price_row %}
+        <div class="bd-badge__prices" aria-label="Sale pricing">
+          <span class="bd-badge__sale-price">{{ current_price | money }}</span>
+          <span class="bd-badge__compare-price">{{ compare_price | money }}</span>
+        </div>
+      {% endif %}
+    {% endif %}
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "Product sale badge",
+  "target": "section",
+  "templates": ["product"],
+  "stylesheet": "better-discounts.css",
+  "settings": [
+    {
+      "type": "header",
+      "content": "Style"
+    },
+    {
+      "type": "select",
+      "id": "theme_style",
+      "label": "Preset",
+      "default": "signal",
+      "options": [
+        { "value": "signal", "label": "Signal - Bold and conversion-focused" },
+        { "value": "spark", "label": "Spark - Clean and elegant" },
+        { "value": "edge", "label": "Edge - Dark and premium" }
+      ]
+    },
+    {
+      "type": "header",
+      "content": "Badge text"
+    },
+    {
+      "type": "select",
+      "id": "label_mode",
+      "label": "Text format",
+      "default": "save",
+      "options": [
+        { "value": "save", "label": "Save 30%" },
+        { "value": "sale", "label": "Sale 30%" },
+        { "value": "percent_only", "label": "-30%" },
+        { "value": "amount", "label": "Save $100" }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "custom_label",
+      "label": "Custom badge text",
+      "info": "Overrides the format above when this field is filled in."
+    },
+    {
+      "type": "text",
+      "id": "savings_prefix",
+      "label": "Text before savings amount",
+      "default": "You save",
+      "info": "Shown before the savings amount. Spacing is added automatically."
+    },
+    {
+      "type": "header",
+      "content": "Visibility"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_badge",
+      "label": "Show badge",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "show_savings_line",
+      "label": "Show savings line",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "show_price_row",
+      "label": "Add extra price row",
+      "default": false,
+      "info": "Advanced. Keep this off for the safest theme compatibility. Turn it on only if your theme does not show the sale price clearly enough."
+    },
+    {
+      "type": "paragraph",
+      "content": "Recommended setup: keep your theme's native price display and use this app block for the badge and savings text."
+    },
+    {
+      "type": "header",
+      "content": "Colors"
+    },
+    {
+      "type": "color",
+      "id": "accent_color",
+      "label": "Badge background",
+      "default": "#0b8457"
+    },
+    {
+      "type": "color",
+      "id": "badge_text_color",
+      "label": "Badge text",
+      "default": "#ffffff"
+    },
+    {
+      "type": "color",
+      "id": "savings_color",
+      "label": "Savings text",
+      "default": "#0b8457"
+    },
+    {
+      "type": "color",
+      "id": "text_color",
+      "label": "Price text",
+      "default": "#111111"
+    },
+    {
+      "type": "header",
+      "content": "Shape"
+    },
+    {
+      "type": "range",
+      "id": "corner_radius",
+      "label": "Badge corner radius",
+      "min": 0,
+      "max": 20,
+      "step": 2,
+      "default": 4,
+      "unit": "px"
+    }
+  ]
+}
+{% endschema %}

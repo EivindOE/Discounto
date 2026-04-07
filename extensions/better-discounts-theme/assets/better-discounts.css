@@ -1,0 +1,240 @@
+.bd-badge--product {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+  margin: 0.35rem 0 0.6rem;
+}
+
+.bd-badge--product:empty {
+  display: none;
+}
+
+.bd-badge__pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.22rem 0.55rem;
+  border-radius: var(--bd-radius, 4px);
+  background: var(--bd-accent, #0b8457);
+  color: var(--bd-badge-text, #fff);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.bd-badge__savings {
+  font-size: 0.875rem;
+  color: var(--bd-savings-color, var(--bd-accent, #0b8457));
+  font-weight: 500;
+  margin: 0;
+}
+
+.bd-theme-signal .bd-badge__savings {
+  font-weight: 600;
+}
+
+.bd-theme-spark .bd-badge__pill {
+  background: transparent;
+  color: var(--bd-accent, #0b8457);
+  border: 1.5px solid currentColor;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.bd-theme-spark .bd-badge__savings {
+  color: rgba(0, 0, 0, 0.45);
+  font-weight: 400;
+  font-size: 0.82rem;
+}
+
+.bd-theme-edge .bd-badge__pill {
+  background: #111;
+  color: #fff;
+  border-radius: 2px;
+  font-size: 0.65rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: 0.24rem 0.5rem;
+}
+
+.bd-theme-edge .bd-badge__savings {
+  color: rgba(0, 0, 0, 0.4);
+  font-weight: 400;
+  font-style: italic;
+  font-size: 0.82rem;
+}
+
+.bd-badge__prices {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+  width: 100%;
+  margin-top: 0.3rem;
+}
+
+.bd-badge__sale-price {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--bd-text, #111);
+}
+
+.bd-badge__compare-price {
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: rgba(0, 0, 0, 0.35);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
+.bd-sale-target {
+  position: relative;
+  overflow: visible;
+}
+
+.bd-chip-wrap {
+  position: absolute;
+  top: 0.75rem;
+  z-index: 9;
+  display: flex;
+  pointer-events: none;
+  max-width: calc(100% - 1.5rem);
+}
+
+.bd-chip-wrap--top-left {
+  left: 0.75rem;
+}
+
+.bd-chip-wrap--top-right {
+  right: 0.75rem;
+}
+
+.bd-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0.72rem;
+  border-radius: 999px;
+  background: var(--bd-accent, #0b8457);
+  color: var(--bd-badge-text, #fff);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+}
+
+.bd-chip--image {
+  pointer-events: none;
+}
+
+.product-media .bd-chip-wrap {
+  top: 0.65rem;
+}
+
+.bd-chip--inline {
+  padding: 0.22rem 0.48rem;
+  font-size: 0.7rem;
+  box-shadow: none;
+}
+
+.bd-chip.bd-style-signal {
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+}
+
+.bd-chip.bd-style-spark {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--bd-accent, #0b8457);
+  border: 1.5px solid currentColor;
+}
+
+.bd-chip.bd-style-edge {
+  background: #111;
+  color: #fff;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bd-card-savings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.bd-card-savings__text {
+  font-size: 0.78rem;
+  color: var(--bd-savings-color, var(--bd-accent, #0b8457));
+  margin: 0;
+}
+
+.bd-style-signal .bd-card-savings__text {
+  color: var(--bd-accent, #0b8457);
+  font-weight: 600;
+}
+
+.bd-style-spark .bd-card-savings__text {
+  color: rgba(0, 0, 0, 0.42);
+  font-size: 0.74rem;
+}
+
+.bd-style-edge .bd-card-savings__text {
+  color: #999;
+  font-style: italic;
+  font-size: 0.74rem;
+}
+
+.product-grid-view-zoom-out-details .bd-card-savings {
+  margin-top: 0.45rem;
+}
+
+.bd-price-host--override .bd-price-compare {
+  display: inline;
+  margin-inline-start: 0.35rem;
+  color: rgba(0, 0, 0, 0.42);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
+.bd-storefront-preview {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.875rem;
+  border-radius: 6px;
+  background: #f8f9fa;
+  border: 1.5px dashed #ccc;
+  color: #999;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 749px) {
+  .bd-chip-wrap {
+    top: 0.5rem;
+  }
+
+  .bd-chip-wrap--top-left {
+    left: 0.5rem;
+  }
+
+  .bd-chip-wrap--top-right {
+    right: 0.5rem;
+  }
+
+  .bd-chip {
+    padding: 0.34rem 0.58rem;
+    font-size: 0.7rem;
+  }
+
+  .bd-card-savings {
+    gap: 0.25rem 0.35rem;
+  }
+}

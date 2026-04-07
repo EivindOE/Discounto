@@ -1,0 +1,151 @@
+{% liquid
+  assign badge_text = block.settings.custom_badge_text
+  if badge_text == blank
+    if block.settings.label_mode == 'sale'
+      assign badge_text = 'Sale {{ percent }}%'
+    elsif block.settings.label_mode == 'percent_only'
+      assign badge_text = '-{{ percent }}%'
+    elsif block.settings.label_mode == 'amount'
+      assign badge_text = 'Save {{ amount }}'
+    else
+      assign badge_text = 'Save {{ percent }}%'
+    endif
+  endif
+%}
+
+{% if request.design_mode %}
+  <div class="bd-storefront-preview">
+    Discounto is active. This embed is optimized for Horizon product cards in v1.
+  </div>
+{% endif %}
+
+<script>
+  window.BetterDiscountsThemeConfig = {
+    assetVersion: "horizon-v1-2026-04-07",
+    proxyUrl: "/apps/discounto/campaigns",
+    badgeTemplate: {{ badge_text | json }},
+    savingsPrefix: {{ block.settings.savings_prefix | json }},
+    accentColor: {{ block.settings.accent_color | json }},
+    badgeTextColor: {{ block.settings.badge_text_color | json }},
+    savingsColor: {{ block.settings.savings_color | json }},
+    cardStyle: {{ block.settings.card_style | json }},
+    badgePosition: {{ block.settings.badge_position | json }},
+    showImageBadge: {{ block.settings.show_image_badge | json }},
+    showInlineBadge: {{ block.settings.show_inline_badge | json }},
+    showSavingsLine: {{ block.settings.show_savings_line | json }},
+    debug: {{ request.design_mode | json }}
+  };
+</script>
+
+{% schema %}
+{
+  "name": "Storefront sale badges",
+  "target": "body",
+  "stylesheet": "better-discounts.css",
+  "javascript": "better-discounts.js",
+  "settings": [
+    {
+      "type": "header",
+      "content": "Style"
+    },
+    {
+      "type": "paragraph",
+      "content": "Version 1 of this embed is built for Horizon product cards."
+    },
+    {
+      "type": "select",
+      "id": "card_style",
+      "label": "Preset",
+      "default": "signal",
+      "options": [
+        { "value": "signal", "label": "Signal - Bold and conversion-focused" },
+        { "value": "spark", "label": "Spark - Clean and elegant" },
+        { "value": "edge", "label": "Edge - Dark and premium" }
+      ]
+    },
+    {
+      "type": "header",
+      "content": "Badge text"
+    },
+    {
+      "type": "select",
+      "id": "label_mode",
+      "label": "Text format",
+      "default": "save",
+      "options": [
+        { "value": "save", "label": "Save 30%" },
+        { "value": "sale", "label": "Sale 30%" },
+        { "value": "percent_only", "label": "-30%" },
+        { "value": "amount", "label": "Save $100" }
+      ]
+    },
+    {
+      "type": "text",
+      "id": "custom_badge_text",
+      "label": "Custom badge text",
+      "info": "Use {{ percent }} or {{ amount }} if you want to build your own label."
+    },
+    {
+      "type": "text",
+      "id": "savings_prefix",
+      "label": "Text before savings amount",
+      "default": "You save",
+      "info": "Shown before the savings amount. Spacing is added automatically when needed."
+    },
+    {
+      "type": "header",
+      "content": "Visibility"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_image_badge",
+      "label": "Show badge on product image",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "show_inline_badge",
+      "label": "Show compact badge near price",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "show_savings_line",
+      "label": "Show savings line near price",
+      "default": true
+    },
+    {
+      "type": "select",
+      "id": "badge_position",
+      "label": "Image position",
+      "default": "top-left",
+      "options": [
+        { "value": "top-left", "label": "Top left" },
+        { "value": "top-right", "label": "Top right" }
+      ]
+    },
+    {
+      "type": "header",
+      "content": "Colors"
+    },
+    {
+      "type": "color",
+      "id": "accent_color",
+      "label": "Badge background",
+      "default": "#0b8457"
+    },
+    {
+      "type": "color",
+      "id": "badge_text_color",
+      "label": "Badge text",
+      "default": "#ffffff"
+    },
+    {
+      "type": "color",
+      "id": "savings_color",
+      "label": "Savings text",
+      "default": "#0b8457"
+    }
+  ]
+}
+{% endschema %}
