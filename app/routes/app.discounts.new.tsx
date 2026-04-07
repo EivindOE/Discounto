@@ -2,7 +2,18 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { redirect } from "@remix-run/node";
 import { useActionData, useLoaderData } from "@remix-run/react";
 import { CampaignEditor } from "../components/CampaignEditor";
-import { createCampaign, markCampaignSyncFailure, markCampaignSyncSuccess } from "../models/discount.server";
+import {
+  calculatePlanUsage,
+  checkPlanLimitsForCampaignChange,
+  getSchedulingAccessError,
+} from "../lib/plan-usage.server";
+import { plansByTier } from "../lib/plans";
+import {
+  createCampaign,
+  listCampaignsForShop,
+  markCampaignSyncFailure,
+  markCampaignSyncSuccess,
+} from "../models/discount.server";
 import { syncPlanFromBilling } from "../models/billing.server";
 import { createAutomaticDiscountInShopify } from "../models/shopify-discounts.server";
 import { authenticate } from "../shopify.server";
@@ -22,10 +33,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     shop: session.shop,
     billing,
   });
+  const campaigns = await listCampaignsForShop(session.shop);
+  const usage = calculatePlanUsage(campaigns);
+  const currentPlan = plansByTier[settings.plan];
 
   return {
     plan: settings.plan,
-    productLimit: settings.productLimit,
+    usage,
+    currentPlan,
   };
 };
 
@@ -44,6 +59,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const selectedProducts = parseSelectedProducts(formData.get("selectedProducts"));
   const startsAt = parseOptionalIsoDate(formData.get("startsAtUtc"));
   const endsAt = parseOptionalIsoDate(formData.get("endsAtUtc"));
+  const campaigns = await listCampaignsForShop(session.shop);
 
   if (!title) {
     return { error: "Add a campaign name before saving." } satisfies ActionData;
@@ -57,16 +73,30 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { error: "Select at least one product." } satisfies ActionData;
   }
 
-  if (selectedProducts.length > settings.productLimit) {
-    return {
-      error: `Your current plan supports up to ${settings.productLimit} products per campaign.`,
-    } satisfies ActionData;
-  }
-
   if (startsAt && endsAt && endsAt <= startsAt) {
     return {
       error: "End date and time must be later than the start date and time.",
     } satisfies ActionData;
+  }
+
+  const schedulingError = getSchedulingAccessError({
+    plan: settings.plan,
+    startsAt,
+    endsAt,
+  });
+
+  if (schedulingError) {
+    return { error: schedulingError } satisfies ActionData;
+  }
+
+  const limitCheck = checkPlanLimitsForCampaignChange({
+    plan: settings.plan,
+    campaigns,
+    nextProducts: selectedProducts,
+  });
+
+  if (!limitCheck.ok) {
+    return { error: limitCheck.error } satisfies ActionData;
   }
 
   const campaign = await createCampaign({
@@ -115,7 +145,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function NewDiscountPage() {
-  const { plan, productLimit } = useLoaderData<typeof loader>();
+  const { plan, usage, currentPlan } = useLoaderData<typeof loader>();
   const actionData = useActionData<ActionData>();
 
   return (
@@ -124,7 +154,8 @@ export default function NewDiscountPage() {
       pageTitle="Create discount"
       submitLabel="Save and sync discount"
       plan={plan}
-      productLimit={productLimit}
+      planConfig={currentPlan}
+      usage={usage}
       actionData={actionData}
     />
   );

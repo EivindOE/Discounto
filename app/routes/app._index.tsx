@@ -16,6 +16,7 @@ import {
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { InternalRouteButton } from "../components/InternalRouteButton";
+import { calculatePlanUsage } from "../lib/plan-usage.server";
 import { listCampaignsForShop } from "../models/discount.server";
 import { syncPlanFromBilling } from "../models/billing.server";
 import { authenticate } from "../shopify.server";
@@ -28,21 +29,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     billing,
   });
   const campaigns = await listCampaignsForShop(session.shop);
-
-  const activeCampaigns = campaigns.filter((campaign) => campaign.status === "ACTIVE");
-  const activeProducts = activeCampaigns.reduce(
-    (sum, campaign) => sum + campaign.products.length,
-    0,
-  );
   const currentPlan = plansByTier[settings.plan];
+  const usage = calculatePlanUsage(campaigns);
 
   return {
     shop: session.shop,
     settings,
     currentPlan,
-    activeCampaigns: activeCampaigns.length,
+    usage,
     totalCampaigns: campaigns.length,
-    activeProducts,
     latestCampaigns: campaigns.slice(0, 5).map((campaign) => ({
       id: campaign.id,
       title: campaign.title,
@@ -62,9 +57,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export default function Dashboard() {
   const {
     currentPlan,
-    activeCampaigns,
+    usage,
     totalCampaigns,
-    activeProducts,
     latestCampaigns,
     plans,
     settings,
@@ -94,16 +88,20 @@ export default function Dashboard() {
               <MetricCard
                 label="Active plan"
                 value={currentPlan.name}
-                caption={currentPlan.productLimitLabel}
+                caption={currentPlan.coverageLabel}
               />
               <MetricCard
-                label="Products in active campaigns"
-                value={`${activeProducts}`}
-                caption={`Current limit: ${settings.productLimit}`}
+                label="Active product coverage"
+                value={`${usage.activeProductCount}`}
+                caption={
+                  currentPlan.activeProductLimit == null
+                    ? "Unlimited product coverage"
+                    : `${usage.activeProductCount} of ${currentPlan.activeProductLimit} used`
+                }
               />
               <MetricCard
                 label="Campaigns"
-                value={`${activeCampaigns} active`}
+                value={`${usage.activeCampaignCount} active`}
                 caption={`${totalCampaigns} total`}
               />
             </InlineGrid>
@@ -214,9 +212,11 @@ export default function Dashboard() {
                       {plan.description}
                     </Text>
                     <List>
-                      <List.Item>{plan.productLimitLabel}</List.Item>
-                      <List.Item>Embedded admin workflow</List.Item>
-                      <List.Item>Storefront badge visibility</List.Item>
+                      <List.Item>{plan.coverageLabel}</List.Item>
+                      <List.Item>{plan.campaignLimitLabel}</List.Item>
+                      <List.Item>
+                        {plan.canSchedule ? "Scheduling included" : "Scheduling on paid plans"}
+                      </List.Item>
                     </List>
                   </BlockStack>
                 </Card>

@@ -17,6 +17,7 @@ import {
 import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import { InternalRouteButton } from "./InternalRouteButton";
 import type { SelectedProductInput } from "../models/discount.server";
+import type { PlanDefinition, PlanTier } from "../lib/plans";
 
 type PickerProduct = {
   id?: string;
@@ -29,8 +30,12 @@ type CampaignEditorProps = {
   titleBar: string;
   pageTitle: string;
   submitLabel: string;
-  plan: string;
-  productLimit: number;
+  plan: PlanTier;
+  planConfig: PlanDefinition;
+  usage: {
+    activeCampaignCount: number;
+    activeProductCount: number;
+  };
   initialValues?: {
     title?: string;
     discountKind?: "PERCENTAGE" | "FIXED_AMOUNT";
@@ -79,7 +84,8 @@ export function CampaignEditor({
   pageTitle,
   submitLabel,
   plan,
-  productLimit,
+  planConfig,
+  usage,
   initialValues,
   actionData,
 }: CampaignEditorProps) {
@@ -91,7 +97,17 @@ export function CampaignEditor({
     };
   };
   const isSubmitting = navigation.state === "submitting";
-  const isBusinessPlan = productLimit > 100000;
+  const isUnlimitedPlan = planConfig.activeProductLimit == null;
+  const canSchedule = planConfig.canSchedule;
+  const currentCampaignProductCount = initialValues?.selectedProducts?.length ?? 0;
+  const remainingProductSlots =
+    planConfig.activeProductLimit == null
+      ? null
+      : Math.max(
+          planConfig.activeProductLimit -
+            Math.max(usage.activeProductCount - currentCampaignProductCount, 0),
+          0,
+        );
 
   const [title, setTitle] = useState(initialValues?.title ?? "");
   const [discountKind, setDiscountKind] = useState(
@@ -122,12 +138,14 @@ export function CampaignEditor({
   }, [badgeTextTouched, discountKind, discountValue]);
 
   const helperText = useMemo(() => {
-    if (isBusinessPlan) {
-      return `You are currently on ${plan}. This plan does not limit the number of products you can include in one campaign.`;
+    if (isUnlimitedPlan) {
+      return `${planConfig.name} includes unlimited active campaigns, unlimited active products, and scheduling.`;
     }
 
-    return `You are currently on ${plan}. This plan supports up to ${productLimit} products in a single campaign.`;
-  }, [isBusinessPlan, plan, productLimit]);
+    return `${planConfig.name} includes up to ${planConfig.activeCampaignLimit} active campaign${
+      planConfig.activeCampaignLimit === 1 ? "" : "s"
+    } and up to ${planConfig.activeProductLimit} unique active products across all live campaigns.`;
+  }, [isUnlimitedPlan, planConfig]);
 
   const handleOpenProductPicker = async () => {
     setPickerError(null);
@@ -145,7 +163,7 @@ export function CampaignEditor({
       const result = await shopify.resourcePicker({
         type: "product",
         action: "select",
-        multiple: isBusinessPlan ? true : productLimit,
+        multiple: isUnlimitedPlan ? true : planConfig.activeProductLimit ?? true,
         filter: {
           variants: false,
           draft: false,
@@ -179,9 +197,12 @@ export function CampaignEditor({
         });
       }
 
-      if (!isBusinessPlan && normalizedProducts.length > productLimit) {
-        const limitedProducts = normalizedProducts.slice(0, productLimit);
-        const message = `Your ${plan} plan supports ${productLimit} products per campaign. Only the first ${productLimit} products were kept.`;
+      if (
+        planConfig.activeProductLimit != null &&
+        normalizedProducts.length > planConfig.activeProductLimit
+      ) {
+        const limitedProducts = normalizedProducts.slice(0, planConfig.activeProductLimit);
+        const message = `Your ${planConfig.name} plan supports up to ${planConfig.activeProductLimit} unique active products across live campaigns. Only the first ${planConfig.activeProductLimit} products were kept here.`;
 
         setSelectedProducts(limitedProducts);
         setPickerError(message);
@@ -211,6 +232,11 @@ export function CampaignEditor({
             </Text>
             <Text as="p" variant="bodySm" tone="subdued">
               {helperText}
+            </Text>
+            <Text as="p" variant="bodySm" tone="subdued">
+              {isUnlimitedPlan
+                ? `${usage.activeCampaignCount} active campaigns and ${usage.activeProductCount} active products are currently live on this shop.`
+                : `${usage.activeCampaignCount} of ${planConfig.activeCampaignLimit} active campaigns used. ${usage.activeProductCount} of ${planConfig.activeProductLimit} active products covered.`}
             </Text>
           </BlockStack>
         </Card>
@@ -286,6 +312,7 @@ export function CampaignEditor({
                     value={startsAtLocal}
                     onChange={setStartsAtLocal}
                     autoComplete="off"
+                    disabled={!canSchedule}
                     helpText="Leave blank to start the campaign immediately."
                   />
                 </div>
@@ -296,10 +323,18 @@ export function CampaignEditor({
                     value={endsAtLocal}
                     onChange={setEndsAtLocal}
                     autoComplete="off"
+                    disabled={!canSchedule}
                     helpText="Leave blank to keep the campaign running until you deactivate it."
                   />
                 </div>
               </InlineStack>
+
+              {!canSchedule ? (
+                <Banner tone="info">
+                  Scheduling is available on Plus and Business. Upgrade in Billing
+                  if you want campaigns to start or end automatically.
+                </Banner>
+              ) : null}
 
               <BlockStack gap="200">
                 <InlineStack align="space-between" blockAlign="center">
@@ -317,6 +352,13 @@ export function CampaignEditor({
                       <Text as="p" variant="bodySm" tone="subdued">
                         {selectedProducts.length} product
                         {selectedProducts.length === 1 ? "" : "s"} selected
+                      </Text>
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        {remainingProductSlots == null
+                          ? "Unlimited active product coverage on this plan."
+                          : `${remainingProductSlots} active product slot${
+                              remainingProductSlots === 1 ? "" : "s"
+                            } remaining before you need to upgrade.`}
                       </Text>
                       <List>
                         {selectedProducts.map((product) => (

@@ -15,7 +15,7 @@ export async function getOrCreateShopSettings(shop: string) {
     data: {
       shop,
       plan: "FREE",
-      productLimit: plansByTier.FREE.productLimit,
+      productLimit: plansByTier.FREE.activeProductLimit ?? 10,
       billingStatus: "inactive",
     },
   });
@@ -33,7 +33,7 @@ export async function updateShopPlan(
     where: { shop },
     update: {
       plan,
-      productLimit: plansByTier[plan].productLimit,
+      productLimit: plansByTier[plan].activeProductLimit ?? 999999,
       ...(options?.billingStatus ? { billingStatus: options.billingStatus } : {}),
       ...(options?.activeChargeId !== undefined
         ? { activeChargeId: options.activeChargeId }
@@ -42,7 +42,7 @@ export async function updateShopPlan(
     create: {
       shop,
       plan,
-      productLimit: plansByTier[plan].productLimit,
+      productLimit: plansByTier[plan].activeProductLimit ?? 999999,
       billingStatus: options?.billingStatus ?? "inactive",
       activeChargeId: options?.activeChargeId ?? null,
     },

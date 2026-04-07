@@ -16,6 +16,12 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { InternalRouteButton } from "../components/InternalRouteButton";
 import {
+  calculatePlanUsage,
+  checkPlanLimitsForCampaignChange,
+  getSchedulingAccessError,
+} from "../lib/plan-usage.server";
+import { plansByTier } from "../lib/plans";
+import {
   deleteCampaignById,
   getCampaignByIdForShop,
   listCampaignsForShop,
@@ -50,13 +56,17 @@ function formatSchedule(startsAt: string | null, endsAt: string | null) {
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
-  await syncPlanFromBilling({
+  const { settings } = await syncPlanFromBilling({
     shop: session.shop,
     billing,
   });
   const campaigns = await listCampaignsForShop(session.shop);
+  const usage = calculatePlanUsage(campaigns);
+  const currentPlan = plansByTier[settings.plan];
 
   return {
+    currentPlan,
+    usage,
     campaigns: campaigns.map((campaign) => ({
       id: campaign.id,
       title: campaign.title,
@@ -75,7 +85,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session, admin } = await authenticate.admin(request);
+  const { session, admin, billing } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const campaignId = String(formData.get("campaignId") ?? "");
@@ -88,6 +98,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (!campaign) {
     return { error: "Campaign not found." };
   }
+  const { settings } = await syncPlanFromBilling({
+    shop: session.shop,
+    billing,
+  });
+  const campaigns = await listCampaignsForShop(session.shop);
 
   try {
     if (intent === "deactivate") {
@@ -103,6 +118,27 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     if (intent === "activate") {
+      const schedulingError = getSchedulingAccessError({
+        plan: settings.plan,
+        startsAt: campaign.startsAt,
+        endsAt: campaign.endsAt,
+      });
+
+      if (schedulingError) {
+        return { error: schedulingError };
+      }
+
+      const limitCheck = checkPlanLimitsForCampaignChange({
+        plan: settings.plan,
+        campaigns,
+        replaceCampaignId: campaign.id,
+        nextProducts: campaign.products,
+      });
+
+      if (!limitCheck.ok) {
+        return { error: limitCheck.error };
+      }
+
       const { shopifyDiscountId } = await createAutomaticDiscountInShopify({
         admin,
         title: campaign.title,
@@ -151,7 +187,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function DiscountsPage() {
   const actionData = useActionData<{ error?: string }>();
-  const { campaigns } = useLoaderData<typeof loader>();
+  const { campaigns, usage, currentPlan } = useLoaderData<typeof loader>();
 
   return (
     <Page>
@@ -262,6 +298,11 @@ export default function DiscountsPage() {
             <BlockStack gap="200">
               <Text as="h2" variant="headingMd">
                 Campaign health
+              </Text>
+              <Text as="p" variant="bodySm" tone="subdued">
+                {currentPlan.activeCampaignLimit == null
+                  ? `${usage.activeCampaignCount} active campaigns running with unlimited product coverage.`
+                  : `${usage.activeCampaignCount} of ${currentPlan.activeCampaignLimit} active campaigns used and ${usage.activeProductCount} of ${currentPlan.activeProductLimit} active products covered.`}
               </Text>
               <InlineStack gap="200">
                 <Badge tone="success">

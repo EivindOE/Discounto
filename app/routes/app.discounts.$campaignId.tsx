@@ -3,7 +3,14 @@ import { redirect } from "@remix-run/node";
 import { useActionData, useLoaderData } from "@remix-run/react";
 import { CampaignEditor, toLocalDateTimeInputValue } from "../components/CampaignEditor";
 import {
+  calculatePlanUsage,
+  checkPlanLimitsForCampaignChange,
+  getSchedulingAccessError,
+} from "../lib/plan-usage.server";
+import { plansByTier } from "../lib/plans";
+import {
   getCampaignByIdForShop,
+  listCampaignsForShop,
   markCampaignSyncFailure,
   markCampaignSyncSuccess,
   updateCampaign,
@@ -40,10 +47,14 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   if (!campaign) {
     throw new Response("Campaign not found", { status: 404 });
   }
+  const campaigns = await listCampaignsForShop(session.shop);
+  const usage = calculatePlanUsage(campaigns);
+  const currentPlan = plansByTier[settings.plan];
 
   return {
     plan: settings.plan,
-    productLimit: settings.productLimit,
+    usage,
+    currentPlan,
     campaign: {
       id: campaign.id,
       title: campaign.title,
@@ -87,6 +98,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const selectedProducts = parseSelectedProducts(formData.get("selectedProducts"));
   const startsAt = parseOptionalIsoDate(formData.get("startsAtUtc"));
   const endsAt = parseOptionalIsoDate(formData.get("endsAtUtc"));
+  const campaigns = await listCampaignsForShop(session.shop);
 
   if (!title) {
     return { error: "Add a campaign name before saving." } satisfies ActionData;
@@ -100,16 +112,31 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return { error: "Select at least one product." } satisfies ActionData;
   }
 
-  if (selectedProducts.length > settings.productLimit) {
-    return {
-      error: `Your current plan supports up to ${settings.productLimit} products per campaign.`,
-    } satisfies ActionData;
-  }
-
   if (startsAt && endsAt && endsAt <= startsAt) {
     return {
       error: "End date and time must be later than the start date and time.",
     } satisfies ActionData;
+  }
+
+  const schedulingError = getSchedulingAccessError({
+    plan: settings.plan,
+    startsAt,
+    endsAt,
+  });
+
+  if (schedulingError) {
+    return { error: schedulingError } satisfies ActionData;
+  }
+
+  const limitCheck = checkPlanLimitsForCampaignChange({
+    plan: settings.plan,
+    campaigns,
+    replaceCampaignId: existingCampaign.id,
+    nextProducts: selectedProducts,
+  });
+
+  if (!limitCheck.ok) {
+    return { error: limitCheck.error } satisfies ActionData;
   }
 
   const campaign = await updateCampaign({
@@ -170,7 +197,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 };
 
 export default function EditDiscountPage() {
-  const { plan, productLimit, campaign } = useLoaderData<typeof loader>();
+  const { plan, usage, currentPlan, campaign } = useLoaderData<typeof loader>();
   const actionData = useActionData<ActionData>();
 
   return (
@@ -179,7 +206,8 @@ export default function EditDiscountPage() {
       pageTitle="Edit discount"
       submitLabel="Save changes"
       plan={plan}
-      productLimit={productLimit}
+      planConfig={currentPlan}
+      usage={usage}
       initialValues={campaign}
       actionData={actionData}
     />
