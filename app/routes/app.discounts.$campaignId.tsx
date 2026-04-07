@@ -32,10 +32,11 @@ type ActionData = {
 };
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
-  const { session, billing } = await authenticate.admin(request);
+  const { session, billing, admin } = await authenticate.admin(request);
   const { settings } = await syncPlanFromBilling({
     shop: session.shop,
     billing,
+    admin,
   });
 
   const campaignId = params.campaignId;
@@ -78,6 +79,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const { settings } = await syncPlanFromBilling({
     shop: session.shop,
     billing,
+    admin,
   });
 
   const campaignId = params.campaignId;

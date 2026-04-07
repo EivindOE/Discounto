@@ -31,10 +31,11 @@ function getManagedPricingUrl(shop: string) {
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, billing } = await authenticate.admin(request);
+  const { session, billing, admin } = await authenticate.admin(request);
   const { settings, activeSubscriptions } = await syncPlanFromBilling({
     shop: session.shop,
     billing,
+    admin,
   });
 
   return {

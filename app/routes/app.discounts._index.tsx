@@ -55,10 +55,11 @@ function formatSchedule(startsAt: string | null, endsAt: string | null) {
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, billing } = await authenticate.admin(request);
+  const { session, billing, admin } = await authenticate.admin(request);
   const { settings } = await syncPlanFromBilling({
     shop: session.shop,
     billing,
+    admin,
   });
   const campaigns = await listCampaignsForShop(session.shop);
   const usage = calculatePlanUsage(campaigns);
@@ -101,6 +102,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { settings } = await syncPlanFromBilling({
     shop: session.shop,
     billing,
+    admin,
   });
   const campaigns = await listCampaignsForShop(session.shop);
 

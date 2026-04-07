@@ -23,10 +23,11 @@ import { authenticate } from "../shopify.server";
 import { PLAN_ORDER, plansByTier } from "../lib/plans";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, billing } = await authenticate.admin(request);
+  const { session, billing, admin } = await authenticate.admin(request);
   const { settings } = await syncPlanFromBilling({
     shop: session.shop,
     billing,
+    admin,
   });
   const campaigns = await listCampaignsForShop(session.shop);
   const currentPlan = plansByTier[settings.plan];

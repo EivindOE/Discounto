@@ -7,6 +7,28 @@ export function isTestBillingRequest() {
   return process.env.NODE_ENV !== "production";
 }
 
+type ActiveSubscription = {
+  id: string;
+  name: string;
+  status?: string | null;
+};
+
+type AdminGraphqlClient = {
+  graphql: (query: string, options?: { variables?: Record<string, unknown> }) => Promise<Response>;
+};
+
+const ACTIVE_SUBSCRIPTIONS_QUERY = `#graphql
+  query DiscountoActiveSubscriptions {
+    currentAppInstallation {
+      activeSubscriptions {
+        id
+        name
+        status
+      }
+    }
+  }
+`;
+
 function normalizeSubscriptionPlanName(name: string | null | undefined): PlanTier | null {
   if (!name) {
     return null;
@@ -32,6 +54,7 @@ function normalizeSubscriptionPlanName(name: string | null | undefined): PlanTie
 export async function syncPlanFromBilling({
   shop,
   billing,
+  admin,
 }: {
   shop: string;
   billing: {
@@ -46,16 +69,45 @@ export async function syncPlanFromBilling({
       }>;
     }>;
   };
+  admin?: AdminGraphqlClient;
 }) {
-  const billingState = await billing.check({
-    plans: [...PAID_PLAN_KEYS],
-    isTest: isTestBillingRequest(),
-  });
+  let activeSubscriptions: ActiveSubscription[] = [];
 
-  const activeSubscriptions =
-    billingState.appSubscriptions?.filter(
-      (subscription) => subscription.status === "ACTIVE",
-    ) ?? [];
+  if (admin) {
+    try {
+      const response = await admin.graphql(ACTIVE_SUBSCRIPTIONS_QUERY);
+      const payload = (await response.json()) as {
+        data?: {
+          currentAppInstallation?: {
+            activeSubscriptions?: ActiveSubscription[];
+          } | null;
+        };
+        errors?: unknown;
+      };
+
+      activeSubscriptions =
+        payload.data?.currentAppInstallation?.activeSubscriptions?.filter(
+          (subscription) => subscription.status === "ACTIVE",
+        ) ?? [];
+    } catch (error) {
+      console.warn("[discounto/billing] Falling back to billing.check after GraphQL failure", {
+        shop,
+        error,
+      });
+    }
+  }
+
+  if (activeSubscriptions.length === 0) {
+    const billingState = await billing.check({
+      plans: [...PAID_PLAN_KEYS],
+      isTest: isTestBillingRequest(),
+    });
+
+    activeSubscriptions =
+      billingState.appSubscriptions?.filter(
+        (subscription) => subscription.status === "ACTIVE",
+      ) ?? [];
+  }
 
   console.info("[discounto/billing] Active subscriptions after billing.check", {
     shop,
