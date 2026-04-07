@@ -7,6 +7,28 @@ export function isTestBillingRequest() {
   return process.env.NODE_ENV !== "production";
 }
 
+function normalizeSubscriptionPlanName(name: string | null | undefined): PlanTier | null {
+  if (!name) {
+    return null;
+  }
+
+  const normalized = name.trim().toUpperCase();
+
+  if (normalized === "PLUS") {
+    return "PLUS";
+  }
+
+  if (normalized === "BUSINESS") {
+    return "BUSINESS";
+  }
+
+  if (normalized === "FREE") {
+    return "FREE";
+  }
+
+  return null;
+}
+
 export async function syncPlanFromBilling({
   shop,
   billing,
@@ -35,11 +57,23 @@ export async function syncPlanFromBilling({
       (subscription) => subscription.status === "ACTIVE",
     ) ?? [];
 
+  console.info("[discounto/billing] Active subscriptions after billing.check", {
+    shop,
+    activeSubscriptions: activeSubscriptions.map((subscription) => ({
+      id: subscription.id,
+      name: subscription.name,
+      status: subscription.status,
+      normalizedPlan: normalizeSubscriptionPlanName(subscription.name),
+    })),
+  });
+
   const targetPlan: PlanTier = activeSubscriptions.some(
-    (subscription) => subscription.name === "BUSINESS",
+    (subscription) => normalizeSubscriptionPlanName(subscription.name) === "BUSINESS",
   )
     ? "BUSINESS"
-    : activeSubscriptions.some((subscription) => subscription.name === "PLUS")
+    : activeSubscriptions.some(
+          (subscription) => normalizeSubscriptionPlanName(subscription.name) === "PLUS",
+        )
       ? "PLUS"
       : "FREE";
 
