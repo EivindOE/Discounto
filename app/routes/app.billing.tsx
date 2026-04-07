@@ -1,6 +1,5 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { redirect } from "@remix-run/node";
-import { Form, useActionData, useLoaderData } from "@remix-run/react";
+import type { LoaderFunctionArgs } from "@remix-run/node";
+import { useLoaderData } from "@remix-run/react";
 import {
   Badge,
   Banner,
@@ -16,16 +15,20 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import {
   PLAN_ORDER,
-  getPlanActionLabel,
-  type PlanTier,
   plansByTier,
 } from "../lib/plans";
-import {
-  isTestBillingRequest,
-  syncPlanFromBilling,
-} from "../models/billing.server";
-import { updateShopPlan } from "../models/shop-settings.server";
+import { syncPlanFromBilling } from "../models/billing.server";
 import { authenticate } from "../shopify.server";
+
+function getManagedPricingUrl(shop: string) {
+  const storeHandle = shop.replace(".myshopify.com", "");
+  const appHandle =
+    process.env.SHOPIFY_ADMIN_APP_HANDLE ||
+    process.env.SHOPIFY_MANAGED_PRICING_APP_HANDLE ||
+    "better-discounts-2";
+
+  return `https://admin.shopify.com/store/${storeHandle}/charges/${appHandle}/pricing_plans`;
+}
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
@@ -38,58 +41,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     currentPlan: settings.plan,
     activeSubscriptions,
     plans: PLAN_ORDER.map((tier) => plansByTier[tier]),
+    managedPricingUrl: getManagedPricingUrl(session.shop),
   };
 };
 
-export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session, billing } = await authenticate.admin(request);
-  const formData = await request.formData();
-  const requestedPlan = String(formData.get("plan") ?? "") as PlanTier;
-
-  if (!PLAN_ORDER.includes(requestedPlan)) {
-    return {
-      error: "Choose a valid plan before continuing.",
-    };
-  }
-
-  const { settings, activeSubscriptions } = await syncPlanFromBilling({
-    shop: session.shop,
-    billing,
-  });
-
-  if (requestedPlan === settings.plan) {
-    return {
-      success: `You are already on the ${plansByTier[requestedPlan].name} plan.`,
-    };
-  }
-
-  if (requestedPlan === "FREE") {
-    if (activeSubscriptions[0]) {
-      await billing.cancel({
-        subscriptionId: activeSubscriptions[0].id,
-        isTest: isTestBillingRequest(),
-        prorate: false,
-      });
-    }
-
-    await updateShopPlan(session.shop, "FREE", {
-      billingStatus: "inactive",
-      activeChargeId: null,
-    });
-
-    return redirect("/app/billing");
-  }
-
-  return billing.request({
-    plan: requestedPlan,
-    isTest: isTestBillingRequest(),
-    returnUrl: `${process.env.SHOPIFY_APP_URL}/app/billing`,
-  });
-};
-
 export default function BillingPage() {
-  const { currentPlan, plans } = useLoaderData<typeof loader>();
-  const actionData = useActionData<{ error?: string; success?: string }>();
+  const { currentPlan, plans, managedPricingUrl } = useLoaderData<typeof loader>();
 
   return (
     <Page>
@@ -105,8 +62,11 @@ export default function BillingPage() {
               Discounto uses plan-based limits so the number of products in
               your campaigns stays aligned with your subscription.
             </Text>
-            {actionData?.error ? <Banner tone="critical">{actionData.error}</Banner> : null}
-            {actionData?.success ? <Banner tone="success">{actionData.success}</Banner> : null}
+            <Banner tone="info">
+              Shopify hosts plan selection for Discounto. Billing changes,
+              trials, upgrades, downgrades, and annual options are managed on
+              the Shopify pricing page.
+            </Banner>
           </BlockStack>
         </Card>
 
@@ -136,32 +96,28 @@ export default function BillingPage() {
                   <List.Item>Theme badge visibility controls</List.Item>
                 </List>
                 {plan.tier === "FREE" ? (
-                  <Form method="post">
-                    <input type="hidden" name="plan" value={plan.tier} />
-                    <Button
-                      submit
-                      variant={plan.tier === currentPlan ? "secondary" : "primary"}
-                      disabled={plan.tier === currentPlan}
-                    >
-                      {getPlanActionLabel(plan, currentPlan)}
-                    </Button>
-                  </Form>
+                  <Button
+                    url={managedPricingUrl}
+                    target="_top"
+                    variant={plan.tier === currentPlan ? "secondary" : "primary"}
+                    disabled={plan.tier === currentPlan}
+                  >
+                    {plan.tier === currentPlan ? "Current plan" : "Manage in Shopify"}
+                  </Button>
                 ) : (
                   <BlockStack gap="200">
                     <Text as="p" variant="bodySm" tone="subdued">
-                      Shopify will show the available monthly and yearly billing
-                      options for this plan.
+                      Open Shopify's hosted plan picker to choose monthly or
+                      yearly billing for this plan.
                     </Text>
-                    <Form method="post">
-                      <input type="hidden" name="plan" value={plan.tier} />
-                      <Button
-                        submit
-                        variant={plan.tier === currentPlan ? "secondary" : "primary"}
-                        disabled={plan.tier === currentPlan}
-                      >
-                        {getPlanActionLabel(plan, currentPlan)}
-                      </Button>
-                    </Form>
+                    <Button
+                      url={managedPricingUrl}
+                      target="_top"
+                      variant={plan.tier === currentPlan ? "secondary" : "primary"}
+                      disabled={plan.tier === currentPlan}
+                    >
+                      {plan.tier === currentPlan ? "Current plan" : `Choose ${plan.name}`}
+                    </Button>
                   </BlockStack>
                 )}
               </BlockStack>
