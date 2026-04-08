@@ -3,7 +3,7 @@ import { redirect } from "@remix-run/node";
 import { useActionData, useLoaderData } from "@remix-run/react";
 import { CampaignEditor } from "../components/CampaignEditor";
 import {
-  calculatePlanUsage,
+  calculatePlanUsageSafely,
   checkPlanLimitsForCampaignChange,
   getSchedulingAccessError,
 } from "../lib/plan-usage.server";
@@ -37,9 +37,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     admin,
   });
   const campaigns = await listCampaignsForShop(session.shop);
-  const usage = await calculatePlanUsage({
+  const usage = await calculatePlanUsageSafely({
     admin,
     campaigns,
+    context: "new discount loader",
   });
   const currentPlan = plansByTier[settings.plan];
 

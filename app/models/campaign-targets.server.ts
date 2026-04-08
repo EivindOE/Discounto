@@ -233,3 +233,16 @@ export async function buildEffectiveCoverageMap({
 
   return new Map<string, EffectiveProductTarget[]>(coverageEntries);
 }
+
+export function buildExplicitCoverageFallbackMap({
+  campaigns,
+}: {
+  campaigns: CampaignTargetSnapshot[];
+}) {
+  return new Map<string, EffectiveProductTarget[]>(
+    campaigns.map((campaign) => [
+      campaign.id,
+      normalizeProducts(campaign.products),
+    ]),
+  );
+}

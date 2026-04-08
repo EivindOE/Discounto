@@ -16,7 +16,8 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { InternalRouteButton } from "../components/InternalRouteButton";
 import {
-  calculatePlanUsage,
+  buildEffectiveCoverageMapSafely,
+  calculatePlanUsageSafely,
   checkPlanLimitsForCampaignChange,
   getSchedulingAccessError,
 } from "../lib/plan-usage.server";
@@ -30,10 +31,7 @@ import {
   markCampaignSyncFailure,
 } from "../models/discount.server";
 import { syncPlanFromBilling } from "../models/billing.server";
-import {
-  buildEffectiveCoverageMap,
-  resolveCampaignTargetProducts,
-} from "../models/campaign-targets.server";
+import { resolveCampaignTargetProducts } from "../models/campaign-targets.server";
 import {
   createAutomaticDiscountInShopify,
   deleteAutomaticDiscountInShopify,
@@ -66,13 +64,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     admin,
   });
   const campaigns = await listCampaignsForShop(session.shop);
-  const usage = await calculatePlanUsage({
+  const usage = await calculatePlanUsageSafely({
     admin,
     campaigns,
+    context: "discount index loader",
   });
-  const coverageMap = await buildEffectiveCoverageMap({
+  const coverageMap = await buildEffectiveCoverageMapSafely({
     admin,
     campaigns,
+    context: "discount index loader",
   });
   const currentPlan = plansByTier[settings.plan];
 

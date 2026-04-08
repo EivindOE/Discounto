@@ -16,8 +16,10 @@ import {
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { InternalRouteButton } from "../components/InternalRouteButton";
-import { calculatePlanUsage } from "../lib/plan-usage.server";
-import { buildEffectiveCoverageMap } from "../models/campaign-targets.server";
+import {
+  buildEffectiveCoverageMapSafely,
+  calculatePlanUsageSafely,
+} from "../lib/plan-usage.server";
 import { listCampaignsForShop } from "../models/discount.server";
 import { syncPlanFromBilling } from "../models/billing.server";
 import { authenticate } from "../shopify.server";
@@ -32,13 +34,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
   const campaigns = await listCampaignsForShop(session.shop);
   const currentPlan = plansByTier[settings.plan];
-  const usage = await calculatePlanUsage({
+  const usage = await calculatePlanUsageSafely({
     admin,
     campaigns,
+    context: "dashboard loader",
   });
-  const coverageMap = await buildEffectiveCoverageMap({
+  const coverageMap = await buildEffectiveCoverageMapSafely({
     admin,
     campaigns,
+    context: "dashboard loader",
   });
 
   return {

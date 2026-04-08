@@ -1,5 +1,6 @@
 import { plansByTier, type PlanTier } from "./plans";
 import {
+  buildExplicitCoverageFallbackMap,
   buildEffectiveCoverageMap,
   type AdminGraphqlClient,
 } from "../models/campaign-targets.server";
@@ -71,6 +72,55 @@ export async function calculatePlanUsage({
     campaigns,
     coverageMap,
   });
+}
+
+export async function calculatePlanUsageSafely({
+  admin,
+  campaigns,
+  context,
+}: {
+  admin: AdminGraphqlClient;
+  campaigns: CampaignWithTargets[];
+  context: string;
+}): Promise<UsageSummary> {
+  try {
+    return await calculatePlanUsage({
+      admin,
+      campaigns,
+    });
+  } catch (error) {
+    console.error(`[discounto/coverage] Falling back to explicit product usage in ${context}`, {
+      error,
+    });
+
+    return summarizeUsage({
+      campaigns,
+      coverageMap: buildExplicitCoverageFallbackMap({ campaigns }),
+    });
+  }
+}
+
+export async function buildEffectiveCoverageMapSafely({
+  admin,
+  campaigns,
+  context,
+}: {
+  admin: AdminGraphqlClient;
+  campaigns: CampaignWithTargets[];
+  context: string;
+}) {
+  try {
+    return await buildEffectiveCoverageMap({
+      admin,
+      campaigns,
+    });
+  } catch (error) {
+    console.error(`[discounto/coverage] Falling back to explicit product coverage in ${context}`, {
+      error,
+    });
+
+    return buildExplicitCoverageFallbackMap({ campaigns });
+  }
 }
 
 export async function checkPlanLimitsForCampaignChange({

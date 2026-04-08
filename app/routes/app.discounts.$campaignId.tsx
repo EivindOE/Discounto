@@ -3,7 +3,7 @@ import { redirect } from "@remix-run/node";
 import { useActionData, useLoaderData } from "@remix-run/react";
 import { CampaignEditor, toLocalDateTimeInputValue } from "../components/CampaignEditor";
 import {
-  calculatePlanUsage,
+  calculatePlanUsageSafely,
   checkPlanLimitsForCampaignChange,
   getSchedulingAccessError,
 } from "../lib/plan-usage.server";
@@ -51,15 +51,26 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     throw new Response("Campaign not found", { status: 404 });
   }
   const campaigns = await listCampaignsForShop(session.shop);
-  const usage = await calculatePlanUsage({
+  const usage = await calculatePlanUsageSafely({
     admin,
     campaigns,
+    context: "edit discount loader",
   });
-  const currentCoverage = await resolveCampaignTargetProducts({
-    admin,
-    selectedProducts: campaign.products,
-    selectedCollections: campaign.collections,
-  });
+  let currentCoverageCount = campaign.products.length;
+
+  try {
+    const currentCoverage = await resolveCampaignTargetProducts({
+      admin,
+      selectedProducts: campaign.products,
+      selectedCollections: campaign.collections,
+    });
+    currentCoverageCount = currentCoverage.length;
+  } catch (error) {
+    console.error("[discounto/coverage] Falling back to explicit product count in edit discount loader", {
+      error,
+      campaignId: campaign.id,
+    });
+  }
   const currentPlan = plansByTier[settings.plan];
 
   return {
@@ -78,7 +89,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
         collectionHandle: collection.collectionHandle,
         imageUrl: collection.imageUrl,
       })),
-      currentCoverageCount: currentCoverage.length,
+      currentCoverageCount,
       startsAtLocal: toLocalDateTimeInputValue(campaign.startsAt?.toISOString() ?? null),
       endsAtLocal: toLocalDateTimeInputValue(campaign.endsAt?.toISOString() ?? null),
       selectedProducts: campaign.products.map((product) => ({
