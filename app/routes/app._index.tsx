@@ -23,7 +23,7 @@ import {
 import { listCampaignsForShop } from "../models/discount.server";
 import { syncPlanFromBilling } from "../models/billing.server";
 import { authenticate } from "../shopify.server";
-import { PLAN_ORDER, plansByTier } from "../lib/plans";
+import { plansByTier } from "../lib/plans";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, billing, admin } = await authenticate.admin(request);
@@ -62,7 +62,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           ? `${campaign.discountValue}%`
           : `${campaign.discountValue} ${campaign.currencyCode}`,
     })),
-    plans: PLAN_ORDER.map((tier) => plansByTier[tier]),
     themeEditorUrl: `https://${session.shop}/admin/themes/current/editor?context=apps`,
   };
 };
@@ -73,8 +72,6 @@ export default function Dashboard() {
     usage,
     totalCampaigns,
     latestCampaigns,
-    plans,
-    settings,
     themeEditorUrl,
   } = useLoaderData<typeof loader>();
 
@@ -198,43 +195,6 @@ export default function Dashboard() {
                 </Text>
               </Box>
             )}
-          </BlockStack>
-        </Card>
-
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">
-              Plans
-            </Text>
-            <InlineGrid columns={{ xs: 1, md: 3 }} gap="300">
-              {plans.map((plan) => (
-                <Card key={plan.tier}>
-                  <BlockStack gap="200">
-                    <InlineStack align="space-between" blockAlign="center">
-                      <Text as="h3" variant="headingMd">
-                        {plan.name}
-                      </Text>
-                      {plan.tier === settings.plan ? (
-                        <Badge tone="success">Current</Badge>
-                      ) : null}
-                    </InlineStack>
-                    <Text as="p" variant="headingLg">
-                      {plan.priceLabel}
-                    </Text>
-                    <Text as="p" variant="bodyMd" tone="subdued">
-                      {plan.description}
-                    </Text>
-                    <List>
-                      <List.Item>{plan.coverageLabel}</List.Item>
-                      <List.Item>{plan.campaignLimitLabel}</List.Item>
-                      <List.Item>
-                        {plan.canSchedule ? "Scheduling included" : "Scheduling on paid plans"}
-                      </List.Item>
-                    </List>
-                  </BlockStack>
-                </Card>
-              ))}
-            </InlineGrid>
           </BlockStack>
         </Card>
       </BlockStack>

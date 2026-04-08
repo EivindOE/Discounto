@@ -49,6 +49,29 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export default function BillingPage() {
   const { currentPlan, plans, managedPricingUrl } = useLoaderData<typeof loader>();
 
+  const planFeatures: Record<(typeof plans)[number]["tier"], string[]> = {
+    FREE: [
+      "Up to 10 active products",
+      "1 active campaign",
+      "Product-based campaigns",
+      "Storefront badges and savings",
+    ],
+    PLUS: [
+      "Up to 50 active products",
+      "Up to 5 active campaigns",
+      "Collection campaigns",
+      "Campaign scheduling",
+      "Storefront badges and savings",
+    ],
+    BUSINESS: [
+      "Unlimited active products",
+      "Unlimited campaigns",
+      "Collection campaigns",
+      "Campaign scheduling",
+      "Full storefront coverage",
+    ],
+  };
+
   return (
     <Page>
       <TitleBar title="Billing" />
@@ -88,13 +111,9 @@ export default function BillingPage() {
                   {plan.description}
                 </Text>
                 <List>
-                  <List.Item>{plan.coverageLabel}</List.Item>
-                  <List.Item>{plan.campaignLimitLabel}</List.Item>
-                  <List.Item>
-                    {plan.canSchedule ? "Scheduling included" : "Scheduling on paid plans"}
-                  </List.Item>
-                  <List.Item>Native Shopify automatic discount sync</List.Item>
-                  <List.Item>Theme badge visibility controls</List.Item>
+                  {planFeatures[plan.tier].map((feature) => (
+                    <List.Item key={feature}>{feature}</List.Item>
+                  ))}
                 </List>
                 {plan.tier === "FREE" ? (
                   <Button
