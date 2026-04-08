@@ -37,6 +37,8 @@ type PickerCollection = {
   image?: { originalSrc?: string; url?: string; src?: string };
 };
 
+type TargetMode = "PRODUCTS" | "COLLECTIONS";
+
 type CampaignEditorProps = {
   titleBar: string;
   pageTitle: string;
@@ -205,6 +207,9 @@ export function CampaignEditor({
   const [selectedCollections, setSelectedCollections] = useState<SelectedCollectionInput[]>(
     initialValues?.selectedCollections ?? [],
   );
+  const [targetMode, setTargetMode] = useState<TargetMode>(
+    initialValues?.selectedCollections?.length ? "COLLECTIONS" : "PRODUCTS",
+  );
   const initialStart = splitLocalDateTimeParts(initialValues?.startsAtLocal ?? "");
   const initialEnd = splitLocalDateTimeParts(initialValues?.endsAtLocal ?? "");
   const [startsAtDate, setStartsAtDate] = useState(initialStart.date);
@@ -226,6 +231,16 @@ export function CampaignEditor({
     setBadgeText(buildDefaultBadgeText(discountKind, discountValue));
   }, [badgeTextTouched, discountKind, discountValue]);
 
+  const coverageSelectionSignature = useMemo(
+    () =>
+      JSON.stringify({
+        selectedProducts,
+        selectedCollections,
+        replaceCampaignId: initialValues?.id ?? null,
+      }),
+    [initialValues?.id, selectedCollections, selectedProducts],
+  );
+
   useEffect(() => {
     const formData = new FormData();
     formData.set("selectedProducts", JSON.stringify(selectedProducts));
@@ -235,11 +250,17 @@ export function CampaignEditor({
       formData.set("replaceCampaignId", initialValues.id);
     }
 
-    coverageFetcher.submit(formData, {
-      method: "post",
-      action: "/app/campaign-coverage",
-    });
-  }, [coverageFetcher, selectedCollections, selectedProducts, initialValues?.id]);
+    const timeoutId = setTimeout(() => {
+      coverageFetcher.submit(formData, {
+        method: "post",
+        action: "/app/campaign-coverage",
+      });
+    }, 250);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [coverageFetcher, coverageSelectionSignature, initialValues?.id, selectedCollections, selectedProducts]);
 
   const helperText = useMemo(() => {
     if (isUnlimitedPlan) {
@@ -315,6 +336,10 @@ export function CampaignEditor({
       }
 
       setSelectedProducts(normalizedProducts);
+      setTargetMode("PRODUCTS");
+      if (selectedCollections.length > 0) {
+        setSelectedCollections([]);
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "The product picker could not be opened.";
@@ -378,6 +403,10 @@ export function CampaignEditor({
       }
 
       setSelectedCollections(normalizedCollections);
+      setTargetMode("COLLECTIONS");
+      if (selectedProducts.length > 0) {
+        setSelectedProducts([]);
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "The collection picker could not be opened.";
@@ -492,6 +521,35 @@ export function CampaignEditor({
                 }}
                 autoComplete="off"
                 helpText="This text is used by Discounto for storefront badges."
+              />
+
+              <Select
+                label="Campaign targets"
+                value={targetMode}
+                onChange={(value) => {
+                  const nextMode = value === "COLLECTIONS" ? "COLLECTIONS" : "PRODUCTS";
+                  setTargetMode(nextMode);
+                  setPickerError(null);
+
+                  if (nextMode === "PRODUCTS" && selectedCollections.length > 0) {
+                    setSelectedCollections([]);
+                  }
+
+                  if (nextMode === "COLLECTIONS" && selectedProducts.length > 0) {
+                    setSelectedProducts([]);
+                  }
+                }}
+                options={[
+                  { label: "Products", value: "PRODUCTS" },
+                  ...(canUseCollections
+                    ? [{ label: "Collections", value: "COLLECTIONS" }]
+                    : []),
+                ]}
+                helpText={
+                  targetMode === "PRODUCTS"
+                    ? "Use this mode when you want to target specific products."
+                    : "Use this mode when you want the campaign to follow collection membership dynamically."
+                }
               />
 
               <BlockStack gap="300">
@@ -686,10 +744,16 @@ export function CampaignEditor({
                   <Text as="h2" variant="headingMd">
                     Selected products
                   </Text>
-                  <Button onClick={handleOpenProductPicker}>
+                  <Button onClick={handleOpenProductPicker} disabled={targetMode !== "PRODUCTS"}>
                     {selectedProducts.length > 0 ? "Edit products" : "Select products"}
                   </Button>
                 </InlineStack>
+
+                {targetMode !== "PRODUCTS" ? (
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Switch the target mode back to Products if you want to pick individual items.
+                  </Text>
+                ) : null}
 
                 {selectedProducts.length > 0 ? (
                   <Card background="bg-surface-secondary">
@@ -730,7 +794,10 @@ export function CampaignEditor({
                   <Text as="h2" variant="headingMd">
                     Selected collections
                   </Text>
-                  <Button onClick={handleOpenCollectionPicker} disabled={!canUseCollections}>
+                  <Button
+                    onClick={handleOpenCollectionPicker}
+                    disabled={!canUseCollections || targetMode !== "COLLECTIONS"}
+                  >
                     {selectedCollections.length > 0 ? "Edit collections" : "Select collections"}
                   </Button>
                 </InlineStack>
@@ -740,6 +807,10 @@ export function CampaignEditor({
                     Collection campaigns are available on Plus and Business. Upgrade
                     in Billing to target collections dynamically.
                   </Banner>
+                ) : targetMode !== "COLLECTIONS" ? (
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Switch the target mode to Collections if you want to target a collection instead of individual products.
+                  </Text>
                 ) : null}
 
                 {selectedCollections.length > 0 ? (
@@ -775,6 +846,9 @@ export function CampaignEditor({
                 <BlockStack gap="200">
                   <Text as="h2" variant="headingMd">
                     Coverage summary
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Target mode: {targetMode === "PRODUCTS" ? "Products" : "Collections"}.
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
                     {selectedProducts.length} selected product

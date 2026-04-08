@@ -92,21 +92,20 @@ function buildCreateItemsInput({
 }: Pick<DiscountInput, "selectedProducts" | "selectedCollections">) {
   const collectionIds = selectedCollections?.map((collection) => collection.collectionGid) ?? [];
   const productIds = selectedProducts.map((product) => product.productGid);
-  const items: Record<string, unknown> = {};
-
-  if (productIds.length > 0) {
-    items.products = {
-      productsToAdd: productIds,
-    };
-  }
 
   if (collectionIds.length > 0) {
-    items.collections = {
-      add: collectionIds,
+    return {
+      collections: {
+        add: collectionIds,
+      },
     };
   }
 
-  return items;
+  return {
+    products: {
+      productsToAdd: productIds,
+    },
+  };
 }
 
 function buildUpdateItemsInput({
@@ -115,21 +114,20 @@ function buildUpdateItemsInput({
 }: Pick<DiscountInput, "selectedProducts" | "selectedCollections">) {
   const collectionIds = selectedCollections?.map((collection) => collection.collectionGid) ?? [];
   const productIds = selectedProducts.map((product) => product.productGid);
-  const items: Record<string, unknown> = {};
-
-  if (productIds.length > 0) {
-    items.products = {
-      productsToAdd: productIds,
-    };
-  }
 
   if (collectionIds.length > 0) {
-    items.collections = {
-      add: collectionIds,
+    return {
+      collections: {
+        add: collectionIds,
+      },
     };
   }
 
-  return items;
+  return {
+    products: {
+      productsToAdd: productIds,
+    },
+  };
 }
 
 function buildCreateAutomaticBasicDiscountInput({

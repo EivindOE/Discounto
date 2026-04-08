@@ -30,6 +30,20 @@ type ActionData = {
   error?: string;
 };
 
+function getMixedTargetError({
+  selectedProducts,
+  selectedCollections,
+}: {
+  selectedProducts: Array<{ productGid: string }>;
+  selectedCollections: Array<{ collectionGid: string }>;
+}) {
+  if (selectedProducts.length > 0 && selectedCollections.length > 0) {
+    return "Choose either individual products or collections for a campaign. Shopify does not allow both in the same automatic discount.";
+  }
+
+  return null;
+}
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, billing, admin } = await authenticate.admin(request);
   const { settings } = await syncPlanFromBilling({
@@ -81,6 +95,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (selectedProducts.length === 0 && selectedCollections.length === 0) {
     return { error: "Select at least one product or collection." } satisfies ActionData;
+  }
+
+  const mixedTargetError = getMixedTargetError({
+    selectedProducts,
+    selectedCollections,
+  });
+
+  if (mixedTargetError) {
+    return { error: mixedTargetError } satisfies ActionData;
   }
 
   if (startsAt && endsAt && endsAt <= startsAt) {

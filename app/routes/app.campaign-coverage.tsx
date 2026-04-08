@@ -33,6 +33,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     selectedCollections,
   });
 
+  if (selectedProducts.length > 0 && selectedCollections.length > 0) {
+    return json({
+      ok: true,
+      canUseCollections: plansByTier[settings.plan].canUseCollections,
+      selectedProductCount: selectedProducts.length,
+      selectedCollectionCount: selectedCollections.length,
+      projectedCampaignCoverageCount: selectedProducts.length,
+      usage,
+      coverageMessage:
+        "Shopify automatic discounts support either products or collections in one campaign, not both.",
+      collectionResolutionFailed: false,
+    });
+  }
+
   if (collectionAccessError) {
     return json({
       ok: true,
@@ -83,4 +97,3 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     });
   }
 };
-
