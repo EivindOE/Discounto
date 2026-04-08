@@ -9,6 +9,7 @@ RUN npm ci
 
 FROM deps AS build
 COPY . .
+RUN npx prisma generate
 RUN npm run build
 
 FROM base AS runner
@@ -17,6 +18,7 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json* ./
 COPY prisma ./prisma
 RUN npm ci --omit=dev && npm cache clean --force
+RUN npx prisma generate
 
 COPY --from=build /app/build ./build
 COPY --from=build /app/public ./public
