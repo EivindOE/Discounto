@@ -1,5 +1,8 @@
 import type { DiscountKind } from "@prisma/client";
-import type { SelectedProductInput } from "../models/discount.server";
+import type {
+  SelectedCollectionInput,
+  SelectedProductInput,
+} from "../models/discount.server";
 
 export function parseSelectedProducts(value: FormDataEntryValue | null): SelectedProductInput[] {
   if (typeof value !== "string" || !value.trim()) {
@@ -38,6 +41,47 @@ export function parseSelectedProducts(value: FormDataEntryValue | null): Selecte
   }
 
   return normalizedProducts;
+}
+
+export function parseSelectedCollections(
+  value: FormDataEntryValue | null,
+): SelectedCollectionInput[] {
+  if (typeof value !== "string" || !value.trim()) {
+    return [];
+  }
+
+  const parsed = JSON.parse(value) as unknown;
+
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  const normalizedCollections: SelectedCollectionInput[] = [];
+
+  for (const item of parsed) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const collection = item as Record<string, unknown>;
+    const collectionGid =
+      typeof collection.collectionGid === "string" ? collection.collectionGid.trim() : "";
+
+    if (!collectionGid) {
+      continue;
+    }
+
+    normalizedCollections.push({
+      collectionGid,
+      collectionTitle:
+        typeof collection.collectionTitle === "string" ? collection.collectionTitle : null,
+      collectionHandle:
+        typeof collection.collectionHandle === "string" ? collection.collectionHandle : null,
+      imageUrl: typeof collection.imageUrl === "string" ? collection.imageUrl : null,
+    });
+  }
+
+  return normalizedCollections;
 }
 
 export function parseOptionalIsoDate(value: FormDataEntryValue | null) {

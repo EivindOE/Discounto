@@ -31,6 +31,10 @@ import {
 } from "../models/discount.server";
 import { syncPlanFromBilling } from "../models/billing.server";
 import {
+  buildEffectiveCoverageMap,
+  resolveCampaignTargetProducts,
+} from "../models/campaign-targets.server";
+import {
   createAutomaticDiscountInShopify,
   deleteAutomaticDiscountInShopify,
 } from "../models/shopify-discounts.server";
@@ -62,7 +66,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     admin,
   });
   const campaigns = await listCampaignsForShop(session.shop);
-  const usage = calculatePlanUsage(campaigns);
+  const usage = await calculatePlanUsage({
+    admin,
+    campaigns,
+  });
+  const coverageMap = await buildEffectiveCoverageMap({
+    admin,
+    campaigns,
+  });
   const currentPlan = plansByTier[settings.plan];
 
   return {
@@ -76,7 +87,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       kind: campaign.discountKind,
       value: campaign.discountValue,
       currencyCode: campaign.currencyCode,
-      productCount: campaign.products.length,
+      productCount: coverageMap.get(campaign.id)?.length ?? 0,
+      collectionCount: campaign.collections.length,
       badgeText: campaign.badgeText,
       lastSyncError: campaign.lastSyncError,
       startsAt: campaign.startsAt?.toISOString() ?? null,
@@ -130,23 +142,36 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         return { error: schedulingError };
       }
 
-      const limitCheck = checkPlanLimitsForCampaignChange({
+      const limitCheck = await checkPlanLimitsForCampaignChange({
+        admin,
         plan: settings.plan,
         campaigns,
         replaceCampaignId: campaign.id,
         nextProducts: campaign.products,
+        nextCollections: campaign.collections,
       });
 
       if (!limitCheck.ok) {
         return { error: limitCheck.error };
       }
 
+      const resolvedProducts = await resolveCampaignTargetProducts({
+        admin,
+        selectedProducts: campaign.products,
+        selectedCollections: campaign.collections,
+      });
+      const shopifyDiscountProducts =
+        campaign.collections.length > 0 && campaign.products.length === 0
+          ? campaign.products
+          : resolvedProducts;
+
       const { shopifyDiscountId } = await createAutomaticDiscountInShopify({
         admin,
         title: campaign.title,
         discountKind: campaign.discountKind,
         discountValue: campaign.discountValue,
-        selectedProducts: campaign.products,
+        selectedProducts: shopifyDiscountProducts,
+        selectedCollections: campaign.collections,
         startsAt: campaign.startsAt,
         endsAt: campaign.endsAt,
       });
@@ -219,6 +244,7 @@ export default function DiscountsPage() {
                 "text",
                 "text",
                 "numeric",
+                "numeric",
                 "text",
                 "text",
                 "text",
@@ -229,6 +255,7 @@ export default function DiscountsPage() {
                 "Status",
                 "Sync",
                 "Products",
+                "Collections",
                 "Discount",
                 "Badge text",
                 "Schedule",
@@ -239,6 +266,7 @@ export default function DiscountsPage() {
                 campaign.status,
                 campaign.syncStatus,
                 campaign.productCount.toString(),
+                campaign.collectionCount.toString(),
                 campaign.kind === "PERCENTAGE"
                   ? `${String(campaign.value)}%`
                   : `${String(campaign.value)} ${campaign.currencyCode}`,

@@ -16,6 +16,7 @@ import {
   updateCampaign,
 } from "../models/discount.server";
 import { syncPlanFromBilling } from "../models/billing.server";
+import { resolveCampaignTargetProducts } from "../models/campaign-targets.server";
 import {
   createAutomaticDiscountInShopify,
   updateAutomaticDiscountInShopify,
@@ -24,6 +25,7 @@ import { authenticate } from "../shopify.server";
 import {
   normalizeDiscountKind,
   parseOptionalIsoDate,
+  parseSelectedCollections,
   parseSelectedProducts,
 } from "../lib/campaigns.server";
 
@@ -49,7 +51,15 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     throw new Response("Campaign not found", { status: 404 });
   }
   const campaigns = await listCampaignsForShop(session.shop);
-  const usage = calculatePlanUsage(campaigns);
+  const usage = await calculatePlanUsage({
+    admin,
+    campaigns,
+  });
+  const currentCoverage = await resolveCampaignTargetProducts({
+    admin,
+    selectedProducts: campaign.products,
+    selectedCollections: campaign.collections,
+  });
   const currentPlan = plansByTier[settings.plan];
 
   return {
@@ -62,6 +72,13 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       discountKind: campaign.discountKind,
       discountValue: String(campaign.discountValue),
       badgeText: campaign.badgeText ?? "",
+      selectedCollections: campaign.collections.map((collection) => ({
+        collectionGid: collection.collectionGid,
+        collectionTitle: collection.collectionTitle,
+        collectionHandle: collection.collectionHandle,
+        imageUrl: collection.imageUrl,
+      })),
+      currentCoverageCount: currentCoverage.length,
       startsAtLocal: toLocalDateTimeInputValue(campaign.startsAt?.toISOString() ?? null),
       endsAtLocal: toLocalDateTimeInputValue(campaign.endsAt?.toISOString() ?? null),
       selectedProducts: campaign.products.map((product) => ({
@@ -98,6 +115,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const discountValue = Number(formData.get("discountValue") ?? 0);
   const badgeText = String(formData.get("badgeText") ?? "").trim();
   const selectedProducts = parseSelectedProducts(formData.get("selectedProducts"));
+  const selectedCollections = parseSelectedCollections(formData.get("selectedCollections"));
   const startsAt = parseOptionalIsoDate(formData.get("startsAtUtc"));
   const endsAt = parseOptionalIsoDate(formData.get("endsAtUtc"));
   const campaigns = await listCampaignsForShop(session.shop);
@@ -110,8 +128,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return { error: "Enter a discount value greater than 0." } satisfies ActionData;
   }
 
-  if (selectedProducts.length === 0) {
-    return { error: "Select at least one product." } satisfies ActionData;
+  if (selectedProducts.length === 0 && selectedCollections.length === 0) {
+    return { error: "Select at least one product or collection." } satisfies ActionData;
   }
 
   if (startsAt && endsAt && endsAt <= startsAt) {
@@ -130,11 +148,13 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return { error: schedulingError } satisfies ActionData;
   }
 
-  const limitCheck = checkPlanLimitsForCampaignChange({
+  const limitCheck = await checkPlanLimitsForCampaignChange({
+    admin,
     plan: settings.plan,
     campaigns,
     replaceCampaignId: existingCampaign.id,
     nextProducts: selectedProducts,
+    nextCollections: selectedCollections,
   });
 
   if (!limitCheck.ok) {
@@ -149,9 +169,20 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     discountValue,
     badgeText: badgeText || null,
     selectedProducts,
+    selectedCollections,
     startsAt,
     endsAt,
   });
+
+  const resolvedProducts = await resolveCampaignTargetProducts({
+    admin,
+    selectedProducts,
+    selectedCollections,
+  });
+  const shopifyDiscountProducts =
+    selectedCollections.length > 0 && selectedProducts.length === 0
+      ? selectedProducts
+      : resolvedProducts;
 
   try {
     const syncResult = existingCampaign.shopifyDiscountId
@@ -161,7 +192,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           title,
           discountKind,
           discountValue,
-          selectedProducts,
+          selectedProducts: shopifyDiscountProducts,
+          selectedCollections,
           startsAt,
           endsAt,
         })
@@ -170,7 +202,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           title,
           discountKind,
           discountValue,
-          selectedProducts,
+          selectedProducts: shopifyDiscountProducts,
+          selectedCollections,
           startsAt,
           endsAt,
         });

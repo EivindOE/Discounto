@@ -17,6 +17,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { InternalRouteButton } from "../components/InternalRouteButton";
 import { calculatePlanUsage } from "../lib/plan-usage.server";
+import { buildEffectiveCoverageMap } from "../models/campaign-targets.server";
 import { listCampaignsForShop } from "../models/discount.server";
 import { syncPlanFromBilling } from "../models/billing.server";
 import { authenticate } from "../shopify.server";
@@ -31,7 +32,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
   const campaigns = await listCampaignsForShop(session.shop);
   const currentPlan = plansByTier[settings.plan];
-  const usage = calculatePlanUsage(campaigns);
+  const usage = await calculatePlanUsage({
+    admin,
+    campaigns,
+  });
+  const coverageMap = await buildEffectiveCoverageMap({
+    admin,
+    campaigns,
+  });
 
   return {
     shop: session.shop,
@@ -44,7 +52,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       title: campaign.title,
       status: campaign.status,
       syncStatus: campaign.syncStatus,
-      productCount: campaign.products.length,
+      productCount: coverageMap.get(campaign.id)?.length ?? 0,
       discountLabel:
         campaign.discountKind === "PERCENTAGE"
           ? `${campaign.discountValue}%`

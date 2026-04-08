@@ -8,32 +8,67 @@ export type SelectedProductInput = {
   imageUrl?: string | null;
 };
 
-export async function listCampaignsForShop(shop: string) {
-  return prisma.discountCampaign.findMany({
+export type SelectedCollectionInput = {
+  collectionGid: string;
+  collectionTitle?: string | null;
+  collectionHandle?: string | null;
+  imageUrl?: string | null;
+};
+
+export type CampaignRecord = {
+  id: string;
+  shop: string;
+  title: string;
+  status: "DRAFT" | "ACTIVE" | "ARCHIVED";
+  syncStatus: "DRAFT" | "SYNCED" | "SYNC_FAILED";
+  discountKind: DiscountKind;
+  discountValue: number;
+  currencyCode: string;
+  badgeText: string | null;
+  shopifyDiscountId: string | null;
+  lastSyncError: string | null;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  products: SelectedProductInput[];
+  collections: SelectedCollectionInput[];
+};
+
+export async function listCampaignsForShop(shop: string): Promise<CampaignRecord[]> {
+  return (await prisma.discountCampaign.findMany({
     where: { shop },
     include: {
       products: true,
+      collections: true,
     },
     orderBy: {
       createdAt: "desc",
     },
-  });
+  } as never)) as CampaignRecord[];
 }
 
-export async function getCampaignByIdForShop(shop: string, campaignId: string) {
-  return prisma.discountCampaign.findFirst({
+export async function getCampaignByIdForShop(
+  shop: string,
+  campaignId: string,
+): Promise<CampaignRecord | null> {
+  return (await prisma.discountCampaign.findFirst({
     where: {
       id: campaignId,
       shop,
     },
     include: {
       products: true,
+      collections: true,
     },
-  });
+  } as never)) as CampaignRecord | null;
 }
 
-export async function listVisibleStorefrontCampaignsForShop(shop: string, now = new Date()) {
-  return prisma.discountCampaign.findMany({
+export async function listVisibleStorefrontCampaignsForShop(
+  shop: string,
+  now = new Date(),
+): Promise<CampaignRecord[]> {
+  return (await prisma.discountCampaign.findMany({
     where: {
       shop,
       status: "ACTIVE",
@@ -43,11 +78,12 @@ export async function listVisibleStorefrontCampaignsForShop(shop: string, now = 
     },
     include: {
       products: true,
+      collections: true,
     },
     orderBy: {
       updatedAt: "desc",
     },
-  });
+  } as never)) as CampaignRecord[];
 }
 
 export async function createCampaign({
@@ -57,6 +93,7 @@ export async function createCampaign({
   discountValue,
   badgeText,
   selectedProducts,
+  selectedCollections,
   startsAt,
   endsAt,
 }: {
@@ -66,10 +103,11 @@ export async function createCampaign({
   discountValue: number;
   badgeText: string | null;
   selectedProducts: SelectedProductInput[];
+  selectedCollections: SelectedCollectionInput[];
   startsAt?: Date | null;
   endsAt?: Date | null;
 }) {
-  return prisma.discountCampaign.create({
+  return (await prisma.discountCampaign.create({
     data: {
       shop,
       title,
@@ -88,11 +126,20 @@ export async function createCampaign({
           imageUrl: product.imageUrl ?? null,
         })),
       },
+      collections: {
+        create: selectedCollections.map((collection) => ({
+          collectionGid: collection.collectionGid,
+          collectionTitle: collection.collectionTitle ?? null,
+          collectionHandle: collection.collectionHandle ?? null,
+          imageUrl: collection.imageUrl ?? null,
+        })),
+      },
     },
     include: {
       products: true,
+      collections: true,
     },
-  });
+  } as never)) as CampaignRecord;
 }
 
 export async function updateCampaign({
@@ -103,6 +150,7 @@ export async function updateCampaign({
   discountValue,
   badgeText,
   selectedProducts,
+  selectedCollections,
   startsAt,
   endsAt,
 }: {
@@ -113,10 +161,11 @@ export async function updateCampaign({
   discountValue: number;
   badgeText: string | null;
   selectedProducts: SelectedProductInput[];
+  selectedCollections: SelectedCollectionInput[];
   startsAt?: Date | null;
   endsAt?: Date | null;
 }) {
-  return prisma.discountCampaign.update({
+  return (await prisma.discountCampaign.update({
     where: { id: campaignId },
     data: {
       title,
@@ -135,11 +184,21 @@ export async function updateCampaign({
           imageUrl: product.imageUrl ?? null,
         })),
       },
+      collections: {
+        deleteMany: {},
+        create: selectedCollections.map((collection) => ({
+          collectionGid: collection.collectionGid,
+          collectionTitle: collection.collectionTitle ?? null,
+          collectionHandle: collection.collectionHandle ?? null,
+          imageUrl: collection.imageUrl ?? null,
+        })),
+      },
     },
     include: {
       products: true,
+      collections: true,
     },
-  });
+  } as never)) as CampaignRecord;
 }
 
 export async function markCampaignSyncSuccess({

@@ -16,10 +16,12 @@ import {
 } from "../models/discount.server";
 import { syncPlanFromBilling } from "../models/billing.server";
 import { createAutomaticDiscountInShopify } from "../models/shopify-discounts.server";
+import { resolveCampaignTargetProducts } from "../models/campaign-targets.server";
 import { authenticate } from "../shopify.server";
 import {
   normalizeDiscountKind,
   parseOptionalIsoDate,
+  parseSelectedCollections,
   parseSelectedProducts,
 } from "../lib/campaigns.server";
 
@@ -35,7 +37,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     admin,
   });
   const campaigns = await listCampaignsForShop(session.shop);
-  const usage = calculatePlanUsage(campaigns);
+  const usage = await calculatePlanUsage({
+    admin,
+    campaigns,
+  });
   const currentPlan = plansByTier[settings.plan];
 
   return {
@@ -59,6 +64,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const discountValue = Number(formData.get("discountValue") ?? 0);
   const badgeText = String(formData.get("badgeText") ?? "").trim();
   const selectedProducts = parseSelectedProducts(formData.get("selectedProducts"));
+  const selectedCollections = parseSelectedCollections(formData.get("selectedCollections"));
   const startsAt = parseOptionalIsoDate(formData.get("startsAtUtc"));
   const endsAt = parseOptionalIsoDate(formData.get("endsAtUtc"));
   const campaigns = await listCampaignsForShop(session.shop);
@@ -71,8 +77,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { error: "Enter a discount value greater than 0." } satisfies ActionData;
   }
 
-  if (selectedProducts.length === 0) {
-    return { error: "Select at least one product." } satisfies ActionData;
+  if (selectedProducts.length === 0 && selectedCollections.length === 0) {
+    return { error: "Select at least one product or collection." } satisfies ActionData;
   }
 
   if (startsAt && endsAt && endsAt <= startsAt) {
@@ -91,10 +97,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { error: schedulingError } satisfies ActionData;
   }
 
-  const limitCheck = checkPlanLimitsForCampaignChange({
+  const limitCheck = await checkPlanLimitsForCampaignChange({
+    admin,
     plan: settings.plan,
     campaigns,
     nextProducts: selectedProducts,
+    nextCollections: selectedCollections,
   });
 
   if (!limitCheck.ok) {
@@ -108,9 +116,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     discountValue,
     badgeText: badgeText || null,
     selectedProducts,
+    selectedCollections,
     startsAt,
     endsAt,
   });
+
+  const resolvedProducts = await resolveCampaignTargetProducts({
+    admin,
+    selectedProducts,
+    selectedCollections,
+  });
+  const shopifyDiscountProducts =
+    selectedCollections.length > 0 && selectedProducts.length === 0
+      ? selectedProducts
+      : resolvedProducts;
 
   try {
     const { shopifyDiscountId } = await createAutomaticDiscountInShopify({
@@ -118,7 +137,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       title,
       discountKind: campaign.discountKind,
       discountValue,
-      selectedProducts,
+      selectedProducts: shopifyDiscountProducts,
+      selectedCollections,
       startsAt,
       endsAt,
     });

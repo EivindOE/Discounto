@@ -6,6 +6,7 @@ import {
   Box,
   Button,
   Card,
+  Checkbox,
   FormLayout,
   InlineStack,
   List,
@@ -16,7 +17,10 @@ import {
 } from "@shopify/polaris";
 import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import { InternalRouteButton } from "./InternalRouteButton";
-import type { SelectedProductInput } from "../models/discount.server";
+import type {
+  SelectedCollectionInput,
+  SelectedProductInput,
+} from "../models/discount.server";
 import type { PlanDefinition, PlanTier } from "../lib/plans";
 
 type PickerProduct = {
@@ -24,6 +28,13 @@ type PickerProduct = {
   title?: string;
   handle?: string;
   images?: Array<{ originalSrc?: string; url?: string; src?: string }>;
+};
+
+type PickerCollection = {
+  id?: string;
+  title?: string;
+  handle?: string;
+  image?: { originalSrc?: string; url?: string; src?: string };
 };
 
 type CampaignEditorProps = {
@@ -42,6 +53,8 @@ type CampaignEditorProps = {
     discountValue?: string;
     badgeText?: string;
     selectedProducts?: SelectedProductInput[];
+    selectedCollections?: SelectedCollectionInput[];
+    currentCoverageCount?: number;
     startsAtLocal?: string;
     endsAtLocal?: string;
   };
@@ -79,6 +92,13 @@ function toUtcIsoString(value: string) {
   return localDate.toISOString();
 }
 
+function addDaysToLocalInputValue(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 16);
+}
+
 export function CampaignEditor({
   titleBar,
   pageTitle,
@@ -100,12 +120,14 @@ export function CampaignEditor({
   const isUnlimitedPlan = planConfig.activeProductLimit == null;
   const canSchedule = planConfig.canSchedule;
   const currentCampaignProductCount = initialValues?.selectedProducts?.length ?? 0;
+  const currentCampaignCoverageCount =
+    initialValues?.currentCoverageCount ?? currentCampaignProductCount;
   const remainingProductSlots =
     planConfig.activeProductLimit == null
       ? null
       : Math.max(
           planConfig.activeProductLimit -
-            Math.max(usage.activeProductCount - currentCampaignProductCount, 0),
+            Math.max(usage.activeProductCount - currentCampaignCoverageCount, 0),
           0,
         );
 
@@ -125,8 +147,16 @@ export function CampaignEditor({
   const [selectedProducts, setSelectedProducts] = useState<SelectedProductInput[]>(
     initialValues?.selectedProducts ?? [],
   );
+  const [selectedCollections, setSelectedCollections] = useState<SelectedCollectionInput[]>(
+    initialValues?.selectedCollections ?? [],
+  );
   const [startsAtLocal, setStartsAtLocal] = useState(initialValues?.startsAtLocal ?? "");
   const [endsAtLocal, setEndsAtLocal] = useState(initialValues?.endsAtLocal ?? "");
+  const [scheduleEnabled, setScheduleEnabled] = useState(
+    Boolean(initialValues?.startsAtLocal || initialValues?.endsAtLocal),
+  );
+  const [customStartEnabled, setCustomStartEnabled] = useState(Boolean(initialValues?.startsAtLocal));
+  const [customEndEnabled, setCustomEndEnabled] = useState(Boolean(initialValues?.endsAtLocal));
   const [pickerError, setPickerError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -163,7 +193,7 @@ export function CampaignEditor({
       const result = await shopify.resourcePicker({
         type: "product",
         action: "select",
-        multiple: isUnlimitedPlan ? true : planConfig.activeProductLimit ?? true,
+        multiple: true,
         filter: {
           variants: false,
           draft: false,
@@ -220,6 +250,63 @@ export function CampaignEditor({
     }
   };
 
+  const handleOpenCollectionPicker = async () => {
+    setPickerError(null);
+
+    try {
+      if (!shopify.resourcePicker) {
+        const message =
+          "The Shopify collection picker is not available right now. Reload the app and try again.";
+
+        setPickerError(message);
+        shopify.toast?.show(message, { isError: true });
+        return;
+      }
+
+      const result = await shopify.resourcePicker({
+        type: "collection",
+        action: "select",
+        multiple: true,
+        selectionIds: selectedCollections.map((collection) => ({
+          id: collection.collectionGid,
+        })),
+      });
+
+      if (!Array.isArray(result)) {
+        return;
+      }
+
+      const normalizedCollections: SelectedCollectionInput[] = [];
+
+      for (const item of result) {
+        const collection = item as PickerCollection;
+
+        if (!collection.id) {
+          continue;
+        }
+
+        normalizedCollections.push({
+          collectionGid: collection.id,
+          collectionTitle: collection.title ?? null,
+          collectionHandle: collection.handle ?? null,
+          imageUrl:
+            collection.image?.originalSrc ?? collection.image?.url ?? collection.image?.src ?? null,
+        });
+      }
+
+      setSelectedCollections(normalizedCollections);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "The collection picker could not be opened.";
+
+      setPickerError(message);
+      shopify.toast?.show(message, { isError: true });
+    }
+  };
+
+  const normalizedStartsAt = scheduleEnabled && customStartEnabled ? startsAtLocal : "";
+  const normalizedEndsAt = scheduleEnabled && customEndEnabled ? endsAtLocal : "";
+
   return (
     <Page backAction={{ content: "Discounts", url: "/app/discounts" }} title={pageTitle}>
       <TitleBar title={titleBar} />
@@ -248,8 +335,13 @@ export function CampaignEditor({
               name="selectedProducts"
               value={JSON.stringify(selectedProducts)}
             />
-            <input type="hidden" name="startsAtUtc" value={toUtcIsoString(startsAtLocal)} />
-            <input type="hidden" name="endsAtUtc" value={toUtcIsoString(endsAtLocal)} />
+            <input
+              type="hidden"
+              name="selectedCollections"
+              value={JSON.stringify(selectedCollections)}
+            />
+            <input type="hidden" name="startsAtUtc" value={toUtcIsoString(normalizedStartsAt)} />
+            <input type="hidden" name="endsAtUtc" value={toUtcIsoString(normalizedEndsAt)} />
             <FormLayout>
               {actionData?.error ? <Banner tone="critical">{actionData.error}</Banner> : null}
               {pickerError ? <Banner tone="warning">{pickerError}</Banner> : null}
@@ -304,37 +396,112 @@ export function CampaignEditor({
                 helpText="This text is used by Discounto for storefront badges."
               />
 
-              <InlineStack gap="300" align="start">
-                <div style={{ minWidth: 280 }}>
-                  <TextField
-                    label="Start date and time"
-                    type="datetime-local"
-                    value={startsAtLocal}
-                    onChange={setStartsAtLocal}
-                    autoComplete="off"
-                    disabled={!canSchedule}
-                    helpText="Leave blank to start the campaign immediately."
-                  />
-                </div>
-                <div style={{ minWidth: 280 }}>
-                  <TextField
-                    label="End date and time"
-                    type="datetime-local"
-                    value={endsAtLocal}
-                    onChange={setEndsAtLocal}
-                    autoComplete="off"
-                    disabled={!canSchedule}
-                    helpText="Leave blank to keep the campaign running until you deactivate it."
-                  />
-                </div>
-              </InlineStack>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Schedule
+                </Text>
 
-              {!canSchedule ? (
-                <Banner tone="info">
-                  Scheduling is available on Plus and Business. Upgrade in Billing
-                  if you want campaigns to start or end automatically.
-                </Banner>
-              ) : null}
+                {!canSchedule ? (
+                  <Banner tone="info">
+                    Scheduling is available on Plus and Business. Upgrade in Billing
+                    if you want campaigns to start or end automatically.
+                  </Banner>
+                ) : (
+                  <>
+                    <Checkbox
+                      label="Schedule this campaign"
+                      checked={scheduleEnabled}
+                      onChange={(checked) => {
+                        setScheduleEnabled(checked);
+                        if (!checked) {
+                          setCustomStartEnabled(false);
+                          setCustomEndEnabled(false);
+                          setStartsAtLocal("");
+                          setEndsAtLocal("");
+                        }
+                      }}
+                    />
+
+                    {scheduleEnabled ? (
+                      <BlockStack gap="300">
+                        <Checkbox
+                          label="Choose a start date"
+                          checked={customStartEnabled}
+                          onChange={(checked) => {
+                            setCustomStartEnabled(checked);
+                            if (!checked) {
+                              setStartsAtLocal("");
+                            }
+                          }}
+                          helpText={
+                            customStartEnabled
+                              ? "Use your local time here. Discounto stores it as UTC."
+                              : "If disabled, the campaign starts immediately."
+                          }
+                        />
+                        {customStartEnabled ? (
+                          <BlockStack gap="200">
+                            <TextField
+                              label="Start date and time"
+                              type="datetime-local"
+                              value={startsAtLocal}
+                              onChange={setStartsAtLocal}
+                              autoComplete="off"
+                            />
+                            <InlineStack gap="200" wrap>
+                              <Button onClick={() => setStartsAtLocal(addDaysToLocalInputValue(7))}>
+                                Start in 7 days
+                              </Button>
+                              <Button onClick={() => setStartsAtLocal(addDaysToLocalInputValue(30))}>
+                                Start in 30 days
+                              </Button>
+                            </InlineStack>
+                          </BlockStack>
+                        ) : null}
+
+                        <Checkbox
+                          label="Set an end date"
+                          checked={customEndEnabled}
+                          onChange={(checked) => {
+                            setCustomEndEnabled(checked);
+                            if (!checked) {
+                              setEndsAtLocal("");
+                            }
+                          }}
+                          helpText={
+                            customEndEnabled
+                              ? "Leave it on and choose when the campaign should stop."
+                              : "If disabled, the campaign stays live until you deactivate it."
+                          }
+                        />
+                        {customEndEnabled ? (
+                          <BlockStack gap="200">
+                            <TextField
+                              label="End date and time"
+                              type="datetime-local"
+                              value={endsAtLocal}
+                              onChange={setEndsAtLocal}
+                              autoComplete="off"
+                            />
+                            <InlineStack gap="200" wrap>
+                              <Button onClick={() => setEndsAtLocal(addDaysToLocalInputValue(7))}>
+                                End in 7 days
+                              </Button>
+                              <Button onClick={() => setEndsAtLocal(addDaysToLocalInputValue(30))}>
+                                End in 30 days
+                              </Button>
+                            </InlineStack>
+                          </BlockStack>
+                        ) : null}
+                      </BlockStack>
+                    ) : (
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        This campaign will start immediately and run until you deactivate it.
+                      </Text>
+                    )}
+                  </>
+                )}
+              </BlockStack>
 
               <BlockStack gap="200">
                 <InlineStack align="space-between" blockAlign="center">
@@ -379,6 +546,69 @@ export function CampaignEditor({
                   </Box>
                 )}
               </BlockStack>
+
+              <BlockStack gap="200">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text as="h2" variant="headingMd">
+                    Selected collections
+                  </Text>
+                  <Button onClick={handleOpenCollectionPicker}>
+                    {selectedCollections.length > 0 ? "Edit collections" : "Select collections"}
+                  </Button>
+                </InlineStack>
+
+                {selectedCollections.length > 0 ? (
+                  <Card background="bg-surface-secondary">
+                    <BlockStack gap="200">
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        {selectedCollections.length} collection
+                        {selectedCollections.length === 1 ? "" : "s"} selected
+                      </Text>
+                      <List>
+                        {selectedCollections.map((collection) => (
+                          <List.Item key={collection.collectionGid}>
+                            {collection.collectionTitle ?? collection.collectionGid}
+                            {collection.collectionHandle
+                              ? ` (${collection.collectionHandle})`
+                              : ""}
+                          </List.Item>
+                        ))}
+                      </List>
+                    </BlockStack>
+                  </Card>
+                ) : (
+                  <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                    <Text as="p" variant="bodyMd" tone="subdued">
+                      No collections selected yet. Add a collection if you want this
+                      campaign to follow collection membership dynamically.
+                    </Text>
+                  </Box>
+                )}
+              </BlockStack>
+
+              <Card background="bg-surface-secondary">
+                <BlockStack gap="200">
+                  <Text as="h2" variant="headingMd">
+                    Coverage summary
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    {selectedProducts.length} selected product
+                    {selectedProducts.length === 1 ? "" : "s"} and {selectedCollections.length} selected
+                    collection{selectedCollections.length === 1 ? "" : "s"}.
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    {isUnlimitedPlan
+                      ? `${usage.activeCampaignCount} active campaigns currently cover ${usage.activeProductCount} unique products. Final collection coverage is validated on save.`
+                      : `${usage.activeCampaignCount} of ${planConfig.activeCampaignLimit} active campaigns used. ${usage.activeProductCount} of ${planConfig.activeProductLimit} active products currently covered. Final collection coverage is validated on save.`}
+                  </Text>
+                  {initialValues?.currentCoverageCount != null ? (
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      This campaign currently covers {initialValues.currentCoverageCount} product
+                      {initialValues.currentCoverageCount === 1 ? "" : "s"}.
+                    </Text>
+                  ) : null}
+                </BlockStack>
+              </Card>
 
               <InlineStack gap="300">
                 <Button submit variant="primary" loading={isSubmitting}>

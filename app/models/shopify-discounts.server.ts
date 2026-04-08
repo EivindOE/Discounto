@@ -47,6 +47,10 @@ type SelectedProduct = {
   productGid: string;
 };
 
+type SelectedCollection = {
+  collectionGid: string;
+};
+
 type AdminGraphqlClient = {
   graphql: (
     query: string,
@@ -61,15 +65,75 @@ type DiscountInput = {
   discountKind: DiscountKind;
   discountValue: number;
   selectedProducts: SelectedProduct[];
+  selectedCollections?: SelectedCollection[];
   startsAt?: Date | null;
   endsAt?: Date | null;
 };
 
-function buildAutomaticBasicDiscountInput({
+function buildDiscountValue({
+  discountKind,
+  discountValue,
+}: Pick<DiscountInput, "discountKind" | "discountValue">) {
+  return discountKind === "PERCENTAGE"
+    ? {
+        percentage: discountValue / 100,
+      }
+    : {
+        discountAmount: {
+          amount: discountValue.toFixed(2),
+          appliesOnEachItem: true,
+        },
+      };
+}
+
+function buildCreateItemsInput({
+  selectedProducts,
+  selectedCollections,
+}: Pick<DiscountInput, "selectedProducts" | "selectedCollections">) {
+  const collectionIds = selectedCollections?.map((collection) => collection.collectionGid) ?? [];
+
+  if (collectionIds.length > 0 && selectedProducts.length === 0) {
+    return {
+      collections: {
+        collectionsToAdd: collectionIds,
+      },
+    };
+  }
+
+  return {
+    products: {
+      productsToAdd: selectedProducts.map((product) => product.productGid),
+    },
+  };
+}
+
+function buildUpdateItemsInput({
+  selectedProducts,
+  selectedCollections,
+}: Pick<DiscountInput, "selectedProducts" | "selectedCollections">) {
+  const collectionIds = selectedCollections?.map((collection) => collection.collectionGid) ?? [];
+
+  if (collectionIds.length > 0 && selectedProducts.length === 0) {
+    return {
+      collections: {
+        add: collectionIds,
+      },
+    };
+  }
+
+  return {
+    products: {
+      productsToAdd: selectedProducts.map((product) => product.productGid),
+    },
+  };
+}
+
+function buildCreateAutomaticBasicDiscountInput({
   title,
   discountKind,
   discountValue,
   selectedProducts,
+  selectedCollections,
   startsAt,
   endsAt,
 }: DiscountInput) {
@@ -78,22 +142,33 @@ function buildAutomaticBasicDiscountInput({
     startsAt: (startsAt ?? new Date()).toISOString(),
     ...(endsAt ? { endsAt: endsAt.toISOString() } : {}),
     customerGets: {
-      value:
-        discountKind === "PERCENTAGE"
-          ? {
-              percentage: discountValue / 100,
-            }
-          : {
-              discountAmount: {
-                amount: discountValue.toFixed(2),
-                appliesOnEachItem: true,
-              },
-            },
-      items: {
-        products: {
-          productsToAdd: selectedProducts.map((product) => product.productGid),
-        },
-      },
+      value: buildDiscountValue({ discountKind, discountValue }),
+      items: buildCreateItemsInput({ selectedProducts, selectedCollections }),
+    },
+    combinesWith: {
+      orderDiscounts: false,
+      productDiscounts: false,
+      shippingDiscounts: false,
+    },
+  };
+}
+
+function buildUpdateAutomaticBasicDiscountInput({
+  title,
+  discountKind,
+  discountValue,
+  selectedProducts,
+  selectedCollections,
+  startsAt,
+  endsAt,
+}: DiscountInput) {
+  return {
+    title,
+    startsAt: (startsAt ?? new Date()).toISOString(),
+    ...(endsAt ? { endsAt: endsAt.toISOString() } : {}),
+    customerGets: {
+      value: buildDiscountValue({ discountKind, discountValue }),
+      items: buildUpdateItemsInput({ selectedProducts, selectedCollections }),
     },
     combinesWith: {
       orderDiscounts: false,
@@ -145,6 +220,7 @@ export async function createAutomaticDiscountInShopify({
   discountKind,
   discountValue,
   selectedProducts,
+  selectedCollections,
   startsAt,
   endsAt,
 }: DiscountInput & {
@@ -152,11 +228,12 @@ export async function createAutomaticDiscountInShopify({
 }) {
   const response = await admin.graphql(CREATE_AUTOMATIC_BASIC_DISCOUNT_MUTATION, {
     variables: {
-      automaticBasicDiscount: buildAutomaticBasicDiscountInput({
+      automaticBasicDiscount: buildCreateAutomaticBasicDiscountInput({
         title,
         discountKind,
         discountValue,
         selectedProducts,
+        selectedCollections,
         startsAt,
         endsAt,
       }),
@@ -185,6 +262,7 @@ export async function updateAutomaticDiscountInShopify({
   discountKind,
   discountValue,
   selectedProducts,
+  selectedCollections,
   startsAt,
   endsAt,
 }: DiscountInput & {
@@ -194,11 +272,12 @@ export async function updateAutomaticDiscountInShopify({
   const response = await admin.graphql(UPDATE_AUTOMATIC_BASIC_DISCOUNT_MUTATION, {
     variables: {
       id: shopifyDiscountId,
-      automaticBasicDiscount: buildAutomaticBasicDiscountInput({
+      automaticBasicDiscount: buildUpdateAutomaticBasicDiscountInput({
         title,
         discountKind,
         discountValue,
         selectedProducts,
+        selectedCollections,
         startsAt,
         endsAt,
       }),

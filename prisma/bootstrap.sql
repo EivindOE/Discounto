@@ -66,6 +66,18 @@ CREATE TABLE IF NOT EXISTS "DiscountProduct" (
     CONSTRAINT "DiscountProduct_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "DiscountCampaign" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+-- CreateTable
+CREATE TABLE IF NOT EXISTS "DiscountCollection" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "campaignId" TEXT NOT NULL,
+    "collectionGid" TEXT NOT NULL,
+    "collectionTitle" TEXT,
+    "collectionHandle" TEXT,
+    "imageUrl" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "DiscountCollection_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "DiscountCampaign" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX IF NOT EXISTS "ShopSettings_shop_key" ON "ShopSettings"("shop");
 
@@ -77,3 +89,9 @@ CREATE INDEX IF NOT EXISTS "DiscountProduct_productGid_idx" ON "DiscountProduct"
 
 -- CreateIndex
 CREATE UNIQUE INDEX IF NOT EXISTS "DiscountProduct_campaignId_productGid_key" ON "DiscountProduct"("campaignId", "productGid");
+
+-- CreateIndex
+CREATE INDEX IF NOT EXISTS "DiscountCollection_collectionGid_idx" ON "DiscountCollection"("collectionGid");
+
+-- CreateIndex
+CREATE UNIQUE INDEX IF NOT EXISTS "DiscountCollection_campaignId_collectionGid_key" ON "DiscountCollection"("campaignId", "collectionGid");

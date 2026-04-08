@@ -86,6 +86,7 @@ model DiscountCampaign {
   updatedAt         DateTime           @updatedAt
   shopSettings      ShopSettings       @relation(fields: [shop], references: [shop], onDelete: Cascade)
   products          DiscountProduct[]
+  collections       DiscountCollection[]
 
   @@index([shop, status])
 }
@@ -102,4 +103,18 @@ model DiscountProduct {
 
   @@unique([campaignId, productGid])
   @@index([productGid])
+}
+
+model DiscountCollection {
+  id               String           @id @default(cuid())
+  campaignId       String
+  collectionGid    String
+  collectionTitle  String?
+  collectionHandle String?
+  imageUrl         String?
+  createdAt        DateTime         @default(now())
+  campaign         DiscountCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, collectionGid])
+  @@index([collectionGid])
 }
