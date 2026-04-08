@@ -213,3 +213,19 @@ export function getSchedulingAccessError({
 
   return null;
 }
+
+export function getCollectionAccessError({
+  plan,
+  selectedCollections,
+}: {
+  plan: PlanTier;
+  selectedCollections: Array<SelectedCollectionInput | { collectionGid: string }>;
+}) {
+  const planConfig = plansByTier[plan];
+
+  if (!planConfig.canUseCollections && selectedCollections.length > 0) {
+    return "Collection campaigns are available on Plus and Business. Upgrade in Billing to target collections.";
+  }
+
+  return null;
+}

@@ -16,6 +16,7 @@ export type PlanDefinition = {
   activeProductLimit: number | null;
   activeCampaignLimit: number | null;
   canSchedule: boolean;
+  canUseCollections: boolean;
   billingPlanKey: null | Exclude<PlanTier, "FREE">;
   coverageLabel: string;
   campaignLimitLabel: string;
@@ -35,6 +36,7 @@ export const plansByTier: Record<PlanTier, PlanDefinition> = {
     activeProductLimit: 10,
     activeCampaignLimit: 1,
     canSchedule: false,
+    canUseCollections: false,
     billingPlanKey: null,
     coverageLabel: "Up to 10 unique active products",
     campaignLimitLabel: "1 active campaign",
@@ -53,6 +55,7 @@ export const plansByTier: Record<PlanTier, PlanDefinition> = {
     activeProductLimit: 50,
     activeCampaignLimit: 5,
     canSchedule: true,
+    canUseCollections: true,
     billingPlanKey: "PLUS",
     coverageLabel: "Up to 50 unique active products",
     campaignLimitLabel: "Up to 5 active campaigns",
@@ -71,6 +74,7 @@ export const plansByTier: Record<PlanTier, PlanDefinition> = {
     activeProductLimit: null,
     activeCampaignLimit: null,
     canSchedule: true,
+    canUseCollections: true,
     billingPlanKey: "BUSINESS",
     coverageLabel: "Unlimited active products",
     campaignLimitLabel: "Unlimited campaigns",

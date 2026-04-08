@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Form, useNavigation } from "@remix-run/react";
+import { Form, useFetcher, useNavigation } from "@remix-run/react";
 import {
   Banner,
   BlockStack,
@@ -48,6 +48,7 @@ type CampaignEditorProps = {
     activeProductCount: number;
   };
   initialValues?: {
+    id?: string;
     title?: string;
     discountKind?: "PERCENTAGE" | "FIXED_AMOUNT";
     discountValue?: string;
@@ -83,20 +84,60 @@ function toLocalDateTimeInputValue(value?: string | null) {
   return offsetDate.toISOString().slice(0, 16);
 }
 
-function toUtcIsoString(value: string) {
-  if (!value) return "";
+function splitLocalDateTimeParts(value?: string | null) {
+  const localValue = toLocalDateTimeInputValue(value);
 
-  const localDate = new Date(value);
+  if (!localValue) {
+    return {
+      date: "",
+      time: "",
+    };
+  }
+
+  const [date, time] = localValue.split("T");
+
+  return {
+    date: date ?? "",
+    time: time ?? "",
+  };
+}
+
+function buildLocalDateTimeValue(date: string, time: string) {
+  if (!date) {
+    return "";
+  }
+
+  return `${date}T${time || "00:00"}`;
+}
+
+function toUtcIsoString(date: string, time: string) {
+  if (!date) return "";
+
+  const localDate = new Date(buildLocalDateTimeValue(date, time));
   if (Number.isNaN(localDate.getTime())) return "";
 
   return localDate.toISOString();
 }
 
-function addDaysToLocalInputValue(days: number) {
+function addDaysToLocalParts(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
-  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
-  return date.toISOString().slice(0, 16);
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  const localValue = offsetDate.toISOString().slice(0, 16);
+  const [isoDate, isoTime] = localValue.split("T");
+
+  return {
+    date: isoDate ?? "",
+    time: isoTime ?? "09:00",
+  };
+}
+
+function isIsoDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function isIsoTime(value: string) {
+  return /^\d{2}:\d{2}$/.test(value);
 }
 
 export function CampaignEditor({
@@ -117,8 +158,22 @@ export function CampaignEditor({
     };
   };
   const isSubmitting = navigation.state === "submitting";
+  const coverageFetcher = useFetcher<{
+    ok: boolean;
+    canUseCollections: boolean;
+    selectedProductCount: number;
+    selectedCollectionCount: number;
+    projectedCampaignCoverageCount: number;
+    usage: {
+      activeCampaignCount: number;
+      activeProductCount: number;
+    };
+    coverageMessage?: string;
+    collectionResolutionFailed: boolean;
+  }>();
   const isUnlimitedPlan = planConfig.activeProductLimit == null;
   const canSchedule = planConfig.canSchedule;
+  const canUseCollections = planConfig.canUseCollections;
   const currentCampaignProductCount = initialValues?.selectedProducts?.length ?? 0;
   const currentCampaignCoverageCount =
     initialValues?.currentCoverageCount ?? currentCampaignProductCount;
@@ -150,8 +205,12 @@ export function CampaignEditor({
   const [selectedCollections, setSelectedCollections] = useState<SelectedCollectionInput[]>(
     initialValues?.selectedCollections ?? [],
   );
-  const [startsAtLocal, setStartsAtLocal] = useState(initialValues?.startsAtLocal ?? "");
-  const [endsAtLocal, setEndsAtLocal] = useState(initialValues?.endsAtLocal ?? "");
+  const initialStart = splitLocalDateTimeParts(initialValues?.startsAtLocal ?? "");
+  const initialEnd = splitLocalDateTimeParts(initialValues?.endsAtLocal ?? "");
+  const [startsAtDate, setStartsAtDate] = useState(initialStart.date);
+  const [startsAtTime, setStartsAtTime] = useState(initialStart.time || "09:00");
+  const [endsAtDate, setEndsAtDate] = useState(initialEnd.date);
+  const [endsAtTime, setEndsAtTime] = useState(initialEnd.time || "23:59");
   const [scheduleEnabled, setScheduleEnabled] = useState(
     Boolean(initialValues?.startsAtLocal || initialValues?.endsAtLocal),
   );
@@ -167,15 +226,30 @@ export function CampaignEditor({
     setBadgeText(buildDefaultBadgeText(discountKind, discountValue));
   }, [badgeTextTouched, discountKind, discountValue]);
 
+  useEffect(() => {
+    const formData = new FormData();
+    formData.set("selectedProducts", JSON.stringify(selectedProducts));
+    formData.set("selectedCollections", JSON.stringify(selectedCollections));
+
+    if (initialValues?.id) {
+      formData.set("replaceCampaignId", initialValues.id);
+    }
+
+    coverageFetcher.submit(formData, {
+      method: "post",
+      action: "/app/campaign-coverage",
+    });
+  }, [coverageFetcher, selectedCollections, selectedProducts, initialValues?.id]);
+
   const helperText = useMemo(() => {
     if (isUnlimitedPlan) {
-      return `${planConfig.name} includes unlimited active campaigns, unlimited active products, and scheduling.`;
+      return `${planConfig.name} includes unlimited active campaigns, unlimited active products, scheduling, and collection campaigns.`;
     }
 
     return `${planConfig.name} includes up to ${planConfig.activeCampaignLimit} active campaign${
       planConfig.activeCampaignLimit === 1 ? "" : "s"
-    } and up to ${planConfig.activeProductLimit} unique active products across all live campaigns.`;
-  }, [isUnlimitedPlan, planConfig]);
+    } and up to ${planConfig.activeProductLimit} unique active products across all live campaigns${canUseCollections ? ", including collection coverage." : "."}`;
+  }, [canUseCollections, isUnlimitedPlan, planConfig]);
 
   const handleOpenProductPicker = async () => {
     setPickerError(null);
@@ -253,6 +327,15 @@ export function CampaignEditor({
   const handleOpenCollectionPicker = async () => {
     setPickerError(null);
 
+    if (!canUseCollections) {
+      const message =
+        "Collection campaigns are available on Plus and Business. Upgrade in Billing to target collections.";
+
+      setPickerError(message);
+      shopify.toast?.show(message, { isError: true });
+      return;
+    }
+
     try {
       if (!shopify.resourcePicker) {
         const message =
@@ -304,8 +387,15 @@ export function CampaignEditor({
     }
   };
 
-  const normalizedStartsAt = scheduleEnabled && customStartEnabled ? startsAtLocal : "";
-  const normalizedEndsAt = scheduleEnabled && customEndEnabled ? endsAtLocal : "";
+  const normalizedStartsAtDate = scheduleEnabled && customStartEnabled ? startsAtDate : "";
+  const normalizedStartsAtTime = scheduleEnabled && customStartEnabled ? startsAtTime : "";
+  const normalizedEndsAtDate = scheduleEnabled && customEndEnabled ? endsAtDate : "";
+  const normalizedEndsAtTime = scheduleEnabled && customEndEnabled ? endsAtTime : "";
+  const liveCoverageSummary = coverageFetcher.data;
+  const selectedCoverageCount =
+    liveCoverageSummary?.projectedCampaignCoverageCount ?? currentCampaignCoverageCount;
+  const coverageMessage = liveCoverageSummary?.coverageMessage;
+  const scheduleDateHelp = "Use YYYY-MM-DD. Discounto stores the selected local time as UTC.";
 
   return (
     <Page backAction={{ content: "Discounts", url: "/app/discounts" }} title={pageTitle}>
@@ -340,8 +430,16 @@ export function CampaignEditor({
               name="selectedCollections"
               value={JSON.stringify(selectedCollections)}
             />
-            <input type="hidden" name="startsAtUtc" value={toUtcIsoString(normalizedStartsAt)} />
-            <input type="hidden" name="endsAtUtc" value={toUtcIsoString(normalizedEndsAt)} />
+            <input
+              type="hidden"
+              name="startsAtUtc"
+              value={toUtcIsoString(normalizedStartsAtDate, normalizedStartsAtTime)}
+            />
+            <input
+              type="hidden"
+              name="endsAtUtc"
+              value={toUtcIsoString(normalizedEndsAtDate, normalizedEndsAtTime)}
+            />
             <FormLayout>
               {actionData?.error ? <Banner tone="critical">{actionData.error}</Banner> : null}
               {pickerError ? <Banner tone="warning">{pickerError}</Banner> : null}
@@ -407,99 +505,179 @@ export function CampaignEditor({
                     if you want campaigns to start or end automatically.
                   </Banner>
                 ) : (
-                  <>
-                    <Checkbox
-                      label="Schedule this campaign"
-                      checked={scheduleEnabled}
-                      onChange={(checked) => {
-                        setScheduleEnabled(checked);
-                        if (!checked) {
-                          setCustomStartEnabled(false);
-                          setCustomEndEnabled(false);
-                          setStartsAtLocal("");
-                          setEndsAtLocal("");
-                        }
-                      }}
-                    />
-
-                    {scheduleEnabled ? (
-                      <BlockStack gap="300">
-                        <Checkbox
-                          label="Choose a start date"
-                          checked={customStartEnabled}
-                          onChange={(checked) => {
-                            setCustomStartEnabled(checked);
-                            if (!checked) {
-                              setStartsAtLocal("");
-                            }
-                          }}
-                          helpText={
-                            customStartEnabled
-                              ? "Use your local time here. Discounto stores it as UTC."
-                              : "If disabled, the campaign starts immediately."
+                  <Card background="bg-surface-secondary">
+                    <BlockStack gap="300">
+                      <Checkbox
+                        label="Schedule this campaign"
+                        checked={scheduleEnabled}
+                        onChange={(checked) => {
+                          setScheduleEnabled(checked);
+                          if (!checked) {
+                            setCustomStartEnabled(false);
+                            setCustomEndEnabled(false);
+                            setStartsAtDate("");
+                            setStartsAtTime("09:00");
+                            setEndsAtDate("");
+                            setEndsAtTime("23:59");
                           }
-                        />
-                        {customStartEnabled ? (
-                          <BlockStack gap="200">
-                            <TextField
-                              label="Start date and time"
-                              type="datetime-local"
-                              value={startsAtLocal}
-                              onChange={setStartsAtLocal}
-                              autoComplete="off"
-                            />
-                            <InlineStack gap="200" wrap>
-                              <Button onClick={() => setStartsAtLocal(addDaysToLocalInputValue(7))}>
-                                Start in 7 days
-                              </Button>
-                              <Button onClick={() => setStartsAtLocal(addDaysToLocalInputValue(30))}>
-                                Start in 30 days
-                              </Button>
-                            </InlineStack>
-                          </BlockStack>
-                        ) : null}
+                        }}
+                      />
 
-                        <Checkbox
-                          label="Set an end date"
-                          checked={customEndEnabled}
-                          onChange={(checked) => {
-                            setCustomEndEnabled(checked);
-                            if (!checked) {
-                              setEndsAtLocal("");
+                      {scheduleEnabled ? (
+                        <BlockStack gap="300">
+                          <Checkbox
+                            label="Choose a start date"
+                            checked={customStartEnabled}
+                            onChange={(checked) => {
+                              setCustomStartEnabled(checked);
+                              if (!checked) {
+                                setStartsAtDate("");
+                                setStartsAtTime("09:00");
+                              }
+                            }}
+                            helpText={
+                              customStartEnabled
+                                ? scheduleDateHelp
+                                : "If disabled, the campaign starts immediately."
                             }
-                          }}
-                          helpText={
-                            customEndEnabled
-                              ? "Leave it on and choose when the campaign should stop."
-                              : "If disabled, the campaign stays live until you deactivate it."
-                          }
-                        />
-                        {customEndEnabled ? (
-                          <BlockStack gap="200">
-                            <TextField
-                              label="End date and time"
-                              type="datetime-local"
-                              value={endsAtLocal}
-                              onChange={setEndsAtLocal}
-                              autoComplete="off"
-                            />
-                            <InlineStack gap="200" wrap>
-                              <Button onClick={() => setEndsAtLocal(addDaysToLocalInputValue(7))}>
-                                End in 7 days
-                              </Button>
-                              <Button onClick={() => setEndsAtLocal(addDaysToLocalInputValue(30))}>
-                                End in 30 days
-                              </Button>
-                            </InlineStack>
-                          </BlockStack>
-                        ) : null}
-                      </BlockStack>
-                    ) : (
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        This campaign will start immediately and run until you deactivate it.
-                      </Text>
-                    )}
-                  </>
+                          />
+                          {customStartEnabled ? (
+                            <BlockStack gap="200">
+                              <InlineStack gap="300" align="start" wrap>
+                                <div style={{ minWidth: 220 }}>
+                                  <TextField
+                                    label="Start date"
+                                    value={startsAtDate}
+                                    onChange={setStartsAtDate}
+                                    autoComplete="off"
+                                    placeholder="YYYY-MM-DD"
+                                    helpText="Use the YYYY-MM-DD format."
+                                    error={
+                                      startsAtDate && !isIsoDate(startsAtDate)
+                                        ? "Enter a valid date in YYYY-MM-DD."
+                                        : undefined
+                                    }
+                                  />
+                                </div>
+                                <div style={{ minWidth: 160 }}>
+                                  <TextField
+                                    label="Start time"
+                                    value={startsAtTime}
+                                    onChange={setStartsAtTime}
+                                    autoComplete="off"
+                                    placeholder="09:00"
+                                    helpText="Use 24-hour time."
+                                    error={
+                                      startsAtTime && !isIsoTime(startsAtTime)
+                                        ? "Enter a valid time in HH:MM."
+                                        : undefined
+                                    }
+                                  />
+                                </div>
+                              </InlineStack>
+                              <InlineStack gap="200" wrap>
+                                <Button
+                                  onClick={() => {
+                                    const preset = addDaysToLocalParts(7);
+                                    setStartsAtDate(preset.date);
+                                    setStartsAtTime(preset.time);
+                                  }}
+                                >
+                                  Start in 7 days
+                                </Button>
+                                <Button
+                                  onClick={() => {
+                                    const preset = addDaysToLocalParts(30);
+                                    setStartsAtDate(preset.date);
+                                    setStartsAtTime(preset.time);
+                                  }}
+                                >
+                                  Start in 30 days
+                                </Button>
+                              </InlineStack>
+                            </BlockStack>
+                          ) : null}
+
+                          <Checkbox
+                            label="Set an end date"
+                            checked={customEndEnabled}
+                            onChange={(checked) => {
+                              setCustomEndEnabled(checked);
+                              if (!checked) {
+                                setEndsAtDate("");
+                                setEndsAtTime("23:59");
+                              }
+                            }}
+                            helpText={
+                              customEndEnabled
+                                ? scheduleDateHelp
+                                : "If disabled, the campaign stays live until you deactivate it."
+                            }
+                          />
+                          {customEndEnabled ? (
+                            <BlockStack gap="200">
+                              <InlineStack gap="300" align="start" wrap>
+                                <div style={{ minWidth: 220 }}>
+                                  <TextField
+                                    label="End date"
+                                    value={endsAtDate}
+                                    onChange={setEndsAtDate}
+                                    autoComplete="off"
+                                    placeholder="YYYY-MM-DD"
+                                    helpText="Use the YYYY-MM-DD format."
+                                    error={
+                                      endsAtDate && !isIsoDate(endsAtDate)
+                                        ? "Enter a valid date in YYYY-MM-DD."
+                                        : undefined
+                                    }
+                                  />
+                                </div>
+                                <div style={{ minWidth: 160 }}>
+                                  <TextField
+                                    label="End time"
+                                    value={endsAtTime}
+                                    onChange={setEndsAtTime}
+                                    autoComplete="off"
+                                    placeholder="23:59"
+                                    helpText="Use 24-hour time."
+                                    error={
+                                      endsAtTime && !isIsoTime(endsAtTime)
+                                        ? "Enter a valid time in HH:MM."
+                                        : undefined
+                                    }
+                                  />
+                                </div>
+                              </InlineStack>
+                              <InlineStack gap="200" wrap>
+                                <Button
+                                  onClick={() => {
+                                    const preset = addDaysToLocalParts(7);
+                                    setEndsAtDate(preset.date);
+                                    setEndsAtTime("23:59");
+                                  }}
+                                >
+                                  End in 7 days
+                                </Button>
+                                <Button
+                                  onClick={() => {
+                                    const preset = addDaysToLocalParts(30);
+                                    setEndsAtDate(preset.date);
+                                    setEndsAtTime("23:59");
+                                  }}
+                                >
+                                  End in 30 days
+                                </Button>
+                              </InlineStack>
+                            </BlockStack>
+                          ) : null}
+                        </BlockStack>
+                      ) : (
+                        <Text as="p" variant="bodySm" tone="subdued">
+                          This campaign will start immediately and run until you deactivate it.
+                        </Text>
+                      )}
+                    </BlockStack>
+                  </Card>
                 )}
               </BlockStack>
 
@@ -552,10 +730,17 @@ export function CampaignEditor({
                   <Text as="h2" variant="headingMd">
                     Selected collections
                   </Text>
-                  <Button onClick={handleOpenCollectionPicker}>
+                  <Button onClick={handleOpenCollectionPicker} disabled={!canUseCollections}>
                     {selectedCollections.length > 0 ? "Edit collections" : "Select collections"}
                   </Button>
                 </InlineStack>
+
+                {!canUseCollections ? (
+                  <Banner tone="info">
+                    Collection campaigns are available on Plus and Business. Upgrade
+                    in Billing to target collections dynamically.
+                  </Banner>
+                ) : null}
 
                 {selectedCollections.length > 0 ? (
                   <Card background="bg-surface-secondary">
@@ -597,10 +782,19 @@ export function CampaignEditor({
                     collection{selectedCollections.length === 1 ? "" : "s"}.
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
-                    {isUnlimitedPlan
-                      ? `${usage.activeCampaignCount} active campaigns currently cover ${usage.activeProductCount} unique products. Final collection coverage is validated on save.`
-                      : `${usage.activeCampaignCount} of ${planConfig.activeCampaignLimit} active campaigns used. ${usage.activeProductCount} of ${planConfig.activeProductLimit} active products currently covered. Final collection coverage is validated on save.`}
+                    This campaign is currently projected to cover {selectedCoverageCount} product
+                    {selectedCoverageCount === 1 ? "" : "s"}.
                   </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    {isUnlimitedPlan
+                      ? `${usage.activeCampaignCount} active campaigns currently cover ${usage.activeProductCount} unique products.`
+                      : `${usage.activeCampaignCount} of ${planConfig.activeCampaignLimit} active campaigns used. ${usage.activeProductCount} of ${planConfig.activeProductLimit} active products currently covered.`}
+                  </Text>
+                  {coverageMessage ? (
+                    <Text as="p" variant="bodySm" tone={liveCoverageSummary?.collectionResolutionFailed ? "subdued" : "critical"}>
+                      {coverageMessage}
+                    </Text>
+                  ) : null}
                   {initialValues?.currentCoverageCount != null ? (
                     <Text as="p" variant="bodySm" tone="subdued">
                       This campaign currently covers {initialValues.currentCoverageCount} product

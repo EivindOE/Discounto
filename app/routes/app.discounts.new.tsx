@@ -5,6 +5,7 @@ import { CampaignEditor } from "../components/CampaignEditor";
 import {
   calculatePlanUsageSafely,
   checkPlanLimitsForCampaignChange,
+  getCollectionAccessError,
   getSchedulingAccessError,
 } from "../lib/plan-usage.server";
 import { plansByTier } from "../lib/plans";
@@ -98,6 +99,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { error: schedulingError } satisfies ActionData;
   }
 
+  const collectionAccessError = getCollectionAccessError({
+    plan: settings.plan,
+    selectedCollections,
+  });
+
+  if (collectionAccessError) {
+    return { error: collectionAccessError } satisfies ActionData;
+  }
+
   const limitCheck = await checkPlanLimitsForCampaignChange({
     admin,
     plan: settings.plan,
@@ -127,18 +137,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     selectedProducts,
     selectedCollections,
   });
-  const shopifyDiscountProducts =
-    selectedCollections.length > 0 && selectedProducts.length === 0
-      ? selectedProducts
-      : resolvedProducts;
-
   try {
     const { shopifyDiscountId } = await createAutomaticDiscountInShopify({
       admin,
       title,
       discountKind: campaign.discountKind,
       discountValue,
-      selectedProducts: shopifyDiscountProducts,
+      selectedProducts: resolvedProducts,
       selectedCollections,
       startsAt,
       endsAt,

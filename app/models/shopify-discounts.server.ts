@@ -91,20 +91,22 @@ function buildCreateItemsInput({
   selectedCollections,
 }: Pick<DiscountInput, "selectedProducts" | "selectedCollections">) {
   const collectionIds = selectedCollections?.map((collection) => collection.collectionGid) ?? [];
+  const productIds = selectedProducts.map((product) => product.productGid);
+  const items: Record<string, unknown> = {};
 
-  if (collectionIds.length > 0 && selectedProducts.length === 0) {
-    return {
-      collections: {
-        collectionsToAdd: collectionIds,
-      },
+  if (productIds.length > 0) {
+    items.products = {
+      productsToAdd: productIds,
     };
   }
 
-  return {
-    products: {
-      productsToAdd: selectedProducts.map((product) => product.productGid),
-    },
-  };
+  if (collectionIds.length > 0) {
+    items.collections = {
+      add: collectionIds,
+    };
+  }
+
+  return items;
 }
 
 function buildUpdateItemsInput({
@@ -112,20 +114,22 @@ function buildUpdateItemsInput({
   selectedCollections,
 }: Pick<DiscountInput, "selectedProducts" | "selectedCollections">) {
   const collectionIds = selectedCollections?.map((collection) => collection.collectionGid) ?? [];
+  const productIds = selectedProducts.map((product) => product.productGid);
+  const items: Record<string, unknown> = {};
 
-  if (collectionIds.length > 0 && selectedProducts.length === 0) {
-    return {
-      collections: {
-        add: collectionIds,
-      },
+  if (productIds.length > 0) {
+    items.products = {
+      productsToAdd: productIds,
     };
   }
 
-  return {
-    products: {
-      productsToAdd: selectedProducts.map((product) => product.productGid),
-    },
-  };
+  if (collectionIds.length > 0) {
+    items.collections = {
+      add: collectionIds,
+    };
+  }
+
+  return items;
 }
 
 function buildCreateAutomaticBasicDiscountInput({

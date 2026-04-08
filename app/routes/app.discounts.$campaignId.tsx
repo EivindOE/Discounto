@@ -5,6 +5,7 @@ import { CampaignEditor, toLocalDateTimeInputValue } from "../components/Campaig
 import {
   calculatePlanUsageSafely,
   checkPlanLimitsForCampaignChange,
+  getCollectionAccessError,
   getSchedulingAccessError,
 } from "../lib/plan-usage.server";
 import { plansByTier } from "../lib/plans";
@@ -159,6 +160,15 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return { error: schedulingError } satisfies ActionData;
   }
 
+  const collectionAccessError = getCollectionAccessError({
+    plan: settings.plan,
+    selectedCollections,
+  });
+
+  if (collectionAccessError) {
+    return { error: collectionAccessError } satisfies ActionData;
+  }
+
   const limitCheck = await checkPlanLimitsForCampaignChange({
     admin,
     plan: settings.plan,
@@ -190,11 +200,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     selectedProducts,
     selectedCollections,
   });
-  const shopifyDiscountProducts =
-    selectedCollections.length > 0 && selectedProducts.length === 0
-      ? selectedProducts
-      : resolvedProducts;
-
   try {
     const syncResult = existingCampaign.shopifyDiscountId
       ? await updateAutomaticDiscountInShopify({
@@ -203,7 +208,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           title,
           discountKind,
           discountValue,
-          selectedProducts: shopifyDiscountProducts,
+          selectedProducts: resolvedProducts,
           selectedCollections,
           startsAt,
           endsAt,
@@ -213,7 +218,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           title,
           discountKind,
           discountValue,
-          selectedProducts: shopifyDiscountProducts,
+          selectedProducts: resolvedProducts,
           selectedCollections,
           startsAt,
           endsAt,
