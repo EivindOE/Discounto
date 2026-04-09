@@ -58,10 +58,7 @@ export async function syncPlanFromBilling({
 }: {
   shop: string;
   billing: {
-    check: (options?: {
-      plans?: Array<(typeof PAID_PLAN_KEYS)[number]>;
-      isTest?: boolean;
-    }) => Promise<{
+    check: (...args: any[]) => Promise<{
       appSubscriptions?: Array<{
         id: string;
         name: string;
