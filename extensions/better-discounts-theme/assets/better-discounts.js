@@ -3,6 +3,11 @@
   const CARD_SCOPE_SELECTOR = ".product-card__content";
   const IMAGE_SELECTOR = ".product-media";
   const PRICE_HOST_SELECTOR = "product-price";
+  const STICKY_PRICE_HOST_SELECTORS = [
+    ".sticky-add-to-cart__price",
+    '[data-testid="sticky-price-display"]',
+    '[ref="priceContainer"]',
+  ];
   const COMPARE_PRICE_SELECTOR = ".price-item--regular.compare-at-price";
   const APP_COMPARE_PRICE_SELECTOR = ".bd-price-compare";
   const CURRENT_PRICE_FALLBACK_SELECTORS = [
@@ -220,6 +225,18 @@
     return null;
   }
 
+  function findStickyPriceHostWithin(container) {
+    if (!container) return null;
+
+    if (
+      STICKY_PRICE_HOST_SELECTORS.some((selector) => container.matches?.(selector))
+    ) {
+      return container;
+    }
+
+    return findFirstMatchingElement(container, STICKY_PRICE_HOST_SELECTORS);
+  }
+
   function findStickyProductPriceHosts() {
     const stickySelectors = [
       '[class*="sticky"]',
@@ -236,6 +253,11 @@
 
         if (container.matches(PRICE_HOST_SELECTOR)) {
           hosts.push(container);
+        }
+
+        const stickyPriceHost = findStickyPriceHostWithin(container);
+        if (stickyPriceHost) {
+          hosts.push(stickyPriceHost);
         }
 
         container.querySelectorAll?.(PRICE_HOST_SELECTOR).forEach((host) => {
