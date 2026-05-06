@@ -10,6 +10,7 @@ import {
 } from "../lib/plan-usage.server";
 import { plansByTier } from "../lib/plans";
 import {
+  fetchShopCurrencyCode,
   getCampaignByIdForShop,
   listCampaignsForShop,
   markCampaignSyncFailure,
@@ -145,6 +146,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const startsAt = parseOptionalIsoDate(formData.get("startsAtUtc"));
   const endsAt = parseOptionalIsoDate(formData.get("endsAtUtc"));
   const campaigns = await listCampaignsForShop(session.shop);
+  const currencyCode = await fetchShopCurrencyCode(admin);
 
   if (!title) {
     return { error: "Add a campaign name before saving." } satisfies ActionData;
@@ -211,6 +213,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     title,
     discountKind,
     discountValue,
+    currencyCode,
     badgeText: badgeText || null,
     selectedProducts,
     selectedCollections,

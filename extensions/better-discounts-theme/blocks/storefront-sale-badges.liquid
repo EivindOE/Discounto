@@ -23,6 +23,7 @@
   window.BetterDiscountsThemeConfig = {
     assetVersion: "horizon-v1-2026-04-07",
     proxyUrl: "/apps/better-discounts/campaigns",
+    storeCurrency: {{ cart.currency.iso_code | default: localization.country.currency.iso_code | default: shop.currency | json }},
     badgeTemplate: {{ badge_text | json }},
     savingsPrefix: {{ block.settings.savings_prefix | json }},
     accentColor: {{ block.settings.accent_color | json }},

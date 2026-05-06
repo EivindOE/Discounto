@@ -36,7 +36,7 @@
     class="bd-badge--product bd-theme-{{ block.settings.theme_style }}"
     data-bd-product-handle="{{ product.handle }}"
     data-bd-price-cents="{{ current_variant.price }}"
-    data-bd-currency="{{ cart.currency.iso_code | default: shop.currency }}"
+    data-bd-currency="{{ cart.currency.iso_code | default: localization.country.currency.iso_code | default: shop.currency }}"
     data-bd-label-mode="{{ block.settings.label_mode }}"
     data-bd-custom-label="{{ block.settings.custom_label | escape }}"
     data-bd-savings-prefix="{{ block.settings.savings_prefix | escape }}"

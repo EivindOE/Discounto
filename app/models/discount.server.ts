@@ -35,6 +35,18 @@ export type CampaignRecord = {
   collections: SelectedCollectionInput[];
 };
 
+type AdminGraphqlClient = {
+  graphql: (query: string, options?: { variables?: Record<string, unknown> }) => Promise<Response>;
+};
+
+const SHOP_CURRENCY_QUERY = `#graphql
+  query DiscountoShopCurrency {
+    shop {
+      currencyCode
+    }
+  }
+`;
+
 export async function listCampaignsForShop(shop: string): Promise<CampaignRecord[]> {
   return (await prisma.discountCampaign.findMany({
     where: { shop },
@@ -91,6 +103,7 @@ export async function createCampaign({
   title,
   discountKind,
   discountValue,
+  currencyCode,
   badgeText,
   selectedProducts,
   selectedCollections,
@@ -101,6 +114,7 @@ export async function createCampaign({
   title: string;
   discountKind: DiscountKind;
   discountValue: number;
+  currencyCode?: string | null;
   badgeText: string | null;
   selectedProducts: SelectedProductInput[];
   selectedCollections: SelectedCollectionInput[];
@@ -115,6 +129,7 @@ export async function createCampaign({
       syncStatus: "DRAFT",
       discountKind,
       discountValue,
+      currencyCode: currencyCode ?? "USD",
       badgeText,
       startsAt: startsAt ?? null,
       endsAt: endsAt ?? null,
@@ -148,6 +163,7 @@ export async function updateCampaign({
   title,
   discountKind,
   discountValue,
+  currencyCode,
   badgeText,
   selectedProducts,
   selectedCollections,
@@ -159,6 +175,7 @@ export async function updateCampaign({
   title: string;
   discountKind: DiscountKind;
   discountValue: number;
+  currencyCode?: string | null;
   badgeText: string | null;
   selectedProducts: SelectedProductInput[];
   selectedCollections: SelectedCollectionInput[];
@@ -171,6 +188,7 @@ export async function updateCampaign({
       title,
       discountKind,
       discountValue,
+      currencyCode: currencyCode ?? "USD",
       badgeText,
       startsAt: startsAt ?? null,
       endsAt: endsAt ?? null,
@@ -280,4 +298,24 @@ export async function deleteCampaignById({
   return prisma.discountCampaign.delete({
     where: { id: campaignId },
   });
+}
+
+export async function fetchShopCurrencyCode(admin: AdminGraphqlClient) {
+  try {
+    const response = await admin.graphql(SHOP_CURRENCY_QUERY);
+    const payload = (await response.json()) as {
+      data?: {
+        shop?: {
+          currencyCode?: string | null;
+        } | null;
+      };
+    };
+
+    return payload.data?.shop?.currencyCode ?? "USD";
+  } catch (error) {
+    console.warn("[discounto/currency] Falling back to USD after shop currency lookup failed", {
+      error,
+    });
+    return "USD";
+  }
 }

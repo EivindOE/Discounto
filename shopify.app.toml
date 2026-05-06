@@ -2,7 +2,7 @@
 
 client_id = "f4dd977b4a844d2e35d44e82f787b01c"
 name = "Discounto"
-application_url = "https://discounto.onrender.com"
+application_url = "https://discounto.oekland.no"
 embedded = true
 
 [webhooks]
@@ -33,9 +33,9 @@ prefix = "apps"
 
 [auth]
 redirect_urls = [
-  "https://discounto.onrender.com/auth/callback",
-  "https://discounto.onrender.com/auth/shopify/callback",
-  "https://discounto.onrender.com/api/auth/callback",
+  "https://discounto.oekland.no/auth/callback",
+  "https://discounto.oekland.no/auth/shopify/callback",
+  "https://discounto.oekland.no/api/auth/callback",
 ]
 
 [build]

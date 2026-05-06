@@ -60,6 +60,15 @@
     }
   }
 
+  function resolveCurrency(config, explicitCurrency) {
+    return (
+      explicitCurrency ||
+      config?.storeCurrency ||
+      document.documentElement.getAttribute("data-shop-currency") ||
+      "USD"
+    );
+  }
+
   function computeDiscountAmounts(basePrice, campaign) {
     if (!campaign || !basePrice || basePrice <= 0) return null;
 
@@ -391,7 +400,7 @@
     priceHost.dataset.bdPriceOverridden = "true";
   }
 
-  function findCompareAtFallbackData(card) {
+  function findCompareAtFallbackData(card, config) {
     const scope = findCardScope(card);
     if (!scope) return null;
 
@@ -417,11 +426,7 @@
       basePrice: compareAtPrice,
       currentPrice,
       compareAtPrice,
-      currency:
-        document.documentElement.lang.includes("nb") ||
-        document.documentElement.lang.includes("no")
-          ? "NOK"
-          : "USD",
+      currency: resolveCurrency(config),
     };
   }
 
@@ -447,17 +452,17 @@
       if (amounts) {
         const amountText = formatMoney(
           amounts.savingsAmount,
-          campaign.currencyCode || "USD",
+          resolveCurrency(config),
           document.documentElement.lang || undefined,
         );
         const discountedText = formatMoney(
           amounts.discountedPrice,
-          campaign.currencyCode || "USD",
+          resolveCurrency(config),
           document.documentElement.lang || undefined,
         );
         const compareText = formatMoney(
           basePrice,
-          campaign.currencyCode || "USD",
+          resolveCurrency(config),
           document.documentElement.lang || undefined,
         );
         const label = campaign.badgeText
@@ -496,7 +501,7 @@
       restorePriceHost(priceHost);
     }
 
-    const fallbackData = findCompareAtFallbackData(card);
+    const fallbackData = findCompareAtFallbackData(card, config);
     if (!fallbackData) return;
 
     const percent = Math.round(
@@ -557,7 +562,7 @@
 
       if (!amounts) return;
 
-      const currency = block.getAttribute("data-bd-currency") || "USD";
+      const currency = block.getAttribute("data-bd-currency") || resolveCurrency(config);
       const labelMode = block.getAttribute("data-bd-label-mode") || "save";
       const customLabel = block.getAttribute("data-bd-custom-label") || "";
       const savingsPrefix = block.getAttribute("data-bd-savings-prefix") || "";
