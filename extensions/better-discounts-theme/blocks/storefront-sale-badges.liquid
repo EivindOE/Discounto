@@ -1,5 +1,9 @@
 {% liquid
   assign badge_text = block.settings.custom_badge_text
+  assign has_custom_badge_template = false
+  if block.settings.custom_badge_text != blank
+    assign has_custom_badge_template = true
+  endif
   if badge_text == blank
     if block.settings.label_mode == 'sale'
       assign badge_text = 'Sale {{ percent }}%'
@@ -24,6 +28,7 @@
     assetVersion: "horizon-v1-2026-04-07",
     proxyUrl: "/apps/better-discounts/campaigns",
     storeCurrency: {{ cart.currency.iso_code | default: localization.country.currency.iso_code | default: shop.currency | json }},
+    hasCustomBadgeTemplate: {{ has_custom_badge_template | json }},
     badgeTemplate: {{ badge_text | json }},
     savingsPrefix: {{ block.settings.savings_prefix | json }},
     accentColor: {{ block.settings.accent_color | json }},

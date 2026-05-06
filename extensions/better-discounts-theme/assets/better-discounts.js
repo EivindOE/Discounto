@@ -93,6 +93,14 @@
       .replace(/\{\{\s*amount\s*\}\}/g, amountText);
   }
 
+  function resolveCardLabelTemplate(config, campaign) {
+    if (config?.hasCustomBadgeTemplate) {
+      return config.badgeTemplate;
+    }
+
+    return campaign?.badgeText || config?.badgeTemplate;
+  }
+
   function applyCustomProperties(el, config) {
     el.style.setProperty("--bd-accent", config.accentColor);
     el.style.setProperty("--bd-badge-text", config.badgeTextColor);
@@ -210,6 +218,46 @@
     }
 
     return null;
+  }
+
+  function findStickyProductPriceHosts() {
+    const stickySelectors = [
+      '[class*="sticky"]',
+      '[id*="sticky"]',
+      '[data-sticky]',
+      '[data-sticky-bar]',
+      '[data-product-sticky]',
+    ];
+    const hosts = [];
+
+    for (const selector of stickySelectors) {
+      document.querySelectorAll(selector).forEach((container) => {
+        if (!(container instanceof Element)) return;
+
+        if (container.matches(PRICE_HOST_SELECTOR)) {
+          hosts.push(container);
+        }
+
+        container.querySelectorAll?.(PRICE_HOST_SELECTOR).forEach((host) => {
+          hosts.push(host);
+        });
+      });
+    }
+
+    return [...new Set(hosts)];
+  }
+
+  function findRelevantProductPriceHosts(block) {
+    const hosts = [];
+    const nearestHost = findNearestProductPriceHost(block);
+
+    if (nearestHost) {
+      hosts.push(nearestHost);
+    }
+
+    hosts.push(...findStickyProductPriceHosts());
+
+    return [...new Set(hosts)].filter(Boolean);
   }
 
   function buildCampaignLookup(campaigns) {
@@ -465,9 +513,11 @@
           resolveCurrency(config),
           document.documentElement.lang || undefined,
         );
-        const label = campaign.badgeText
-          ? renderLabel(campaign.badgeText, amounts.savingsPercent, amountText)
-          : renderLabel(config.badgeTemplate, amounts.savingsPercent, amountText);
+        const label = renderLabel(
+          resolveCardLabelTemplate(config, campaign),
+          amounts.savingsPercent,
+          amountText,
+        );
         const prefix = String(config.savingsPrefix || "").trim();
         const savingsText = prefix ? `${prefix} ${amountText}` : amountText;
 
@@ -545,10 +595,11 @@
       if (!handle) return;
 
       const campaign = campaignLookup.byHandle.get(handle);
-      const livePriceHost = findNearestProductPriceHost(block);
+      const livePriceHosts = findRelevantProductPriceHosts(block);
+      const livePriceHost = livePriceHosts[0] || null;
 
       if (!campaign) {
-        restorePriceHost(livePriceHost);
+        livePriceHosts.forEach((host) => restorePriceHost(host));
         return;
       }
 
@@ -570,9 +621,11 @@
       const showSavingsLine = block.getAttribute("data-bd-show-savings-line") === "true";
       const showPriceRow = block.getAttribute("data-bd-show-price-row") === "true";
 
-      if (livePriceHost && !livePriceHost.dataset.bdOriginalBasePrice) {
-        livePriceHost.dataset.bdOriginalBasePrice = String(basePrice);
-      }
+      livePriceHosts.forEach((host) => {
+        if (host && !host.dataset.bdOriginalBasePrice) {
+          host.dataset.bdOriginalBasePrice = String(basePrice);
+        }
+      });
 
       let labelTemplate = customLabel;
       if (!labelTemplate) {
@@ -602,15 +655,17 @@
         currency,
         document.documentElement.lang || undefined,
       );
-      const label = campaign.badgeText
-        ? renderLabel(campaign.badgeText, amounts.savingsPercent, amountText)
-        : renderLabel(labelTemplate, amounts.savingsPercent, amountText);
+      const label = renderLabel(
+        customLabel || campaign.badgeText || labelTemplate,
+        amounts.savingsPercent,
+        amountText,
+      );
       const prefix = String(savingsPrefix || "").trim();
       const savingsText = prefix ? `${prefix} ${amountText}` : amountText;
 
-      if (livePriceHost) {
-        overridePriceHost(livePriceHost, campaign.id, currentPriceText, comparePriceText);
-      }
+      livePriceHosts.forEach((host) => {
+        overridePriceHost(host, campaign.id, currentPriceText, comparePriceText);
+      });
 
       const fragments = [];
 
