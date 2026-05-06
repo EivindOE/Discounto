@@ -48,6 +48,21 @@ function normalizeSubscriptionPlanName(name: string | null | undefined): PlanTie
     return "FREE";
   }
 
+  // Private or managed pricing plans can include extra words such as
+  // billing cadence or internal naming variants. Match the core tier name
+  // so the app unlocks the expected feature set.
+  if (normalized.includes("BUSINESS")) {
+    return "BUSINESS";
+  }
+
+  if (normalized.includes("PLUS")) {
+    return "PLUS";
+  }
+
+  if (normalized.includes("FREE")) {
+    return "FREE";
+  }
+
   return null;
 }
 
