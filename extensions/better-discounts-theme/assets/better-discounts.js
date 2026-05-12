@@ -698,6 +698,7 @@
       const savingsText = prefix ? `${prefix} ${amountText}` : amountText;
 
       livePriceHosts.forEach((host) => {
+        host.dataset.bdLastBaseText = comparePriceText;
         overridePriceHost(host, campaign.id, currentPriceText, comparePriceText);
       });
 
@@ -761,6 +762,8 @@
     delete host.dataset.bdOriginalSaleDisplay;
     delete host.dataset.bdOriginalRegularDisplay;
     delete host.dataset.bdAppliedCampaignId;
+    delete host.dataset.bdLastDiscountedText;
+    delete host.dataset.bdLastBaseText;
     host.dataset.bdPriceOverridden = "false";
     host.classList.remove("bd-price-host--override");
     const appCompare = host.querySelector(APP_COMPARE_PRICE_SELECTOR);
@@ -768,22 +771,28 @@
   }
 
   function setupVariantChangeRecompute(config, campaignLookup) {
-    let scheduled = false;
-    const scheduleRecompute = (hosts) => {
-      if (hosts) {
-        hosts.forEach(invalidatePriceHostCache);
+    const RECOMPUTE_DEBOUNCE_MS = 250;
+    const pendingHosts = new Set();
+    let debounceTimer = null;
+
+    const runRecompute = () => {
+      debounceTimer = null;
+      if (pendingHosts.size > 0) {
+        pendingHosts.forEach(invalidatePriceHostCache);
+        pendingHosts.clear();
       } else {
         document
           .querySelectorAll('[data-bd-price-overridden="true"]')
           .forEach(invalidatePriceHostCache);
       }
-      if (scheduled) return;
-      scheduled = true;
-      requestAnimationFrame(() => {
-        scheduled = false;
-        applyCampaignToProductBlocks(config, campaignLookup);
-        scanCards(config, campaignLookup, document);
-      });
+      applyCampaignToProductBlocks(config, campaignLookup);
+      scanCards(config, campaignLookup, document);
+    };
+
+    const scheduleRecompute = (hosts) => {
+      if (hosts) hosts.forEach((h) => pendingHosts.add(h));
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(runRecompute, RECOMPUTE_DEBOUNCE_MS);
     };
 
     const priceObserver = new MutationObserver((mutations) => {
@@ -797,8 +806,11 @@
         if (!host || host.__bdWriting) continue;
 
         const currentText = findCurrentPriceElement(host)?.textContent?.trim() || "";
-        const lastWritten = (host.dataset.bdLastDiscountedText || "").trim();
-        if (lastWritten && currentText === lastWritten) continue;
+        const lastDiscounted = (host.dataset.bdLastDiscountedText || "").trim();
+        const lastBase = (host.dataset.bdLastBaseText || "").trim();
+
+        if (lastDiscounted && currentText === lastDiscounted) continue;
+        if (lastBase && currentText === lastBase) continue;
 
         const newPrice = parsePrice(currentText);
         if (!newPrice || newPrice <= 0) continue;
