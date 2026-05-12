@@ -373,9 +373,18 @@
     return compareElement;
   }
 
+  function markWriting(priceHost) {
+    if (!priceHost) return;
+    priceHost.__bdWriting = true;
+    queueMicrotask(() => {
+      priceHost.__bdWriting = false;
+    });
+  }
+
   function restorePriceHost(priceHost) {
     if (!priceHost || priceHost.dataset.bdPriceOverridden !== "true") return;
 
+    markWriting(priceHost);
     const nodes = getPriceHostNodes(priceHost);
     const currentElement = nodes.currentElement;
     const compareElement = nodes.compareElement;
@@ -431,6 +440,7 @@
   function overridePriceHost(priceHost, campaignId, discountedText, compareText) {
     if (!priceHost) return;
 
+    markWriting(priceHost);
     preserveOriginalPriceHostState(priceHost);
 
     const nodes = getPriceHostNodes(priceHost);
@@ -738,6 +748,105 @@
     }
   }
 
+  function invalidatePriceHostCache(host) {
+    if (!host) return;
+    delete host.dataset.bdOriginalBasePrice;
+    delete host.dataset.bdOriginalCaptured;
+    delete host.dataset.bdOriginalCurrentText;
+    delete host.dataset.bdOriginalCompareText;
+    delete host.dataset.bdOriginalSaleText;
+    delete host.dataset.bdOriginalRegularText;
+    delete host.dataset.bdOriginalSaleDisplay;
+    delete host.dataset.bdOriginalRegularDisplay;
+    delete host.dataset.bdAppliedCampaignId;
+    host.dataset.bdPriceOverridden = "false";
+    host.classList.remove("bd-price-host--override");
+    const appCompare = host.querySelector(APP_COMPARE_PRICE_SELECTOR);
+    if (appCompare) appCompare.remove();
+  }
+
+  function setupVariantChangeRecompute(config, campaignLookup) {
+    let scheduled = false;
+    const scheduleRecompute = (hosts) => {
+      if (hosts) {
+        hosts.forEach(invalidatePriceHostCache);
+      } else {
+        document
+          .querySelectorAll('[data-bd-price-overridden="true"]')
+          .forEach(invalidatePriceHostCache);
+      }
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        applyCampaignToProductBlocks(config, campaignLookup);
+        scanCards(config, campaignLookup, document);
+      });
+    };
+
+    const priceObserver = new MutationObserver((mutations) => {
+      const hosts = new Set();
+      for (const mutation of mutations) {
+        const target =
+          mutation.target instanceof Element
+            ? mutation.target
+            : mutation.target.parentElement;
+        const host = target?.closest?.(PRICE_HOST_SELECTOR);
+        if (!host || host.__bdWriting) continue;
+        hosts.add(host);
+      }
+      if (hosts.size > 0) scheduleRecompute(hosts);
+    });
+
+    const observePriceHost = (host) => {
+      if (!host || host.__bdObserved) return;
+      host.__bdObserved = true;
+      priceObserver.observe(host, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+    };
+
+    document.querySelectorAll(PRICE_HOST_SELECTOR).forEach(observePriceHost);
+
+    new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        mutation.addedNodes.forEach((node) => {
+          if (!(node instanceof Element)) return;
+          if (node.matches?.(PRICE_HOST_SELECTOR)) observePriceHost(node);
+          node.querySelectorAll?.(PRICE_HOST_SELECTOR).forEach(observePriceHost);
+        });
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+
+    const variantEvents = [
+      "variant:change",
+      "on:variant:change",
+      "product:variant-change",
+      "product:variant:change",
+      "bd:recompute",
+    ];
+    variantEvents.forEach((evt) => {
+      document.addEventListener(evt, () => scheduleRecompute());
+    });
+
+    document.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (
+        target.matches?.(
+          'select[name="id"], input[name="id"], [data-bundle-option], [data-variant-option]',
+        )
+      ) {
+        scheduleRecompute();
+      }
+    });
+
+    window.BetterDiscounts = window.BetterDiscounts || {};
+    window.BetterDiscounts.recompute = () => scheduleRecompute();
+  }
+
   async function boot() {
     const config = window.BetterDiscountsThemeConfig;
     if (!config) return;
@@ -747,6 +856,8 @@
 
     scanCards(config, campaignLookup, document);
     applyCampaignToProductBlocks(config, campaignLookup);
+
+    setupVariantChangeRecompute(config, campaignLookup);
 
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
