@@ -375,10 +375,10 @@
 
   function markWriting(priceHost) {
     if (!priceHost) return;
-    priceHost.__bdWriting = true;
-    queueMicrotask(() => {
-      priceHost.__bdWriting = false;
-    });
+    priceHost.__bdWriting = (priceHost.__bdWriting || 0) + 1;
+    setTimeout(() => {
+      priceHost.__bdWriting = Math.max(0, (priceHost.__bdWriting || 1) - 1);
+    }, 0);
   }
 
   function restorePriceHost(priceHost) {
@@ -478,6 +478,8 @@
     priceHost.classList.add("bd-price-host--override");
     priceHost.dataset.bdAppliedCampaignId = campaignId;
     priceHost.dataset.bdPriceOverridden = "true";
+    priceHost.dataset.bdLastDiscountedText = discountedText;
+    priceHost.dataset.bdLastCompareText = compareText;
   }
 
   function findCompareAtFallbackData(card, config) {
@@ -793,6 +795,14 @@
             : mutation.target.parentElement;
         const host = target?.closest?.(PRICE_HOST_SELECTOR);
         if (!host || host.__bdWriting) continue;
+
+        const currentText = findCurrentPriceElement(host)?.textContent?.trim() || "";
+        const lastWritten = (host.dataset.bdLastDiscountedText || "").trim();
+        if (lastWritten && currentText === lastWritten) continue;
+
+        const newPrice = parsePrice(currentText);
+        if (!newPrice || newPrice <= 0) continue;
+
         hosts.add(host);
       }
       if (hosts.size > 0) scheduleRecompute(hosts);
