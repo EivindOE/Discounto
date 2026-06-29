@@ -1,7 +1,10 @@
 name: Close Waiting for Response Issues
+# Scheduled trigger disabled: GitHub Actions is blocked on this account
+# ("Repository access blocked" / billing). The daily cron failed every run.
+# Re-enable the schedule below once billing/spending limit is resolved.
 on:
-  schedule:
-    - cron: "30 1 * * *"
+  # schedule:
+  #   - cron: "30 1 * * *"
   workflow_dispatch:
 jobs:
   check-need-info:
