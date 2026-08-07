@@ -2,7 +2,9 @@ import { plansByTier, type PlanTier } from "./plans";
 import {
   buildExplicitCoverageFallbackMap,
   buildEffectiveCoverageMap,
+  createCollectionResolutionCache,
   type AdminGraphqlClient,
+  type CollectionResolutionCache,
 } from "../models/campaign-targets.server";
 import type {
   SelectedCollectionInput,
@@ -59,13 +61,16 @@ function summarizeUsage({
 export async function calculatePlanUsage({
   admin,
   campaigns,
+  cache,
 }: {
   admin: AdminGraphqlClient;
   campaigns: CampaignWithTargets[];
+  cache?: CollectionResolutionCache;
 }): Promise<UsageSummary> {
   const coverageMap = await buildEffectiveCoverageMap({
     admin,
     campaigns,
+    cache,
   });
 
   return summarizeUsage({
@@ -78,15 +83,18 @@ export async function calculatePlanUsageSafely({
   admin,
   campaigns,
   context,
+  cache,
 }: {
   admin: AdminGraphqlClient;
   campaigns: CampaignWithTargets[];
   context: string;
+  cache?: CollectionResolutionCache;
 }): Promise<UsageSummary> {
   try {
     return await calculatePlanUsage({
       admin,
       campaigns,
+      cache,
     });
   } catch (error) {
     console.error(`[discounto/coverage] Falling back to explicit product usage in ${context}`, {
@@ -100,26 +108,51 @@ export async function calculatePlanUsageSafely({
   }
 }
 
-export async function buildEffectiveCoverageMapSafely({
+/**
+ * Builds the coverage map and the usage summary from a single resolution pass.
+ * Callers that need both must use this: running the two lookups separately
+ * doubles the Shopify query cost and gets the second one throttled, which used
+ * to surface as "0 products" on collection campaigns.
+ */
+export async function buildCoverageAndUsageSafely({
   admin,
   campaigns,
   context,
+  cache = createCollectionResolutionCache(),
 }: {
   admin: AdminGraphqlClient;
   campaigns: CampaignWithTargets[];
   context: string;
-}) {
+  cache?: CollectionResolutionCache;
+}): Promise<{
+  coverageMap: Map<string, Array<{ productGid: string }>>;
+  usage: UsageSummary;
+  coverageResolutionFailed: boolean;
+}> {
   try {
-    return await buildEffectiveCoverageMap({
+    const coverageMap = await buildEffectiveCoverageMap({
       admin,
       campaigns,
+      cache,
     });
+
+    return {
+      coverageMap,
+      usage: summarizeUsage({ campaigns, coverageMap }),
+      coverageResolutionFailed: false,
+    };
   } catch (error) {
     console.error(`[discounto/coverage] Falling back to explicit product coverage in ${context}`, {
       error,
     });
 
-    return buildExplicitCoverageFallbackMap({ campaigns });
+    const coverageMap = buildExplicitCoverageFallbackMap({ campaigns });
+
+    return {
+      coverageMap,
+      usage: summarizeUsage({ campaigns, coverageMap }),
+      coverageResolutionFailed: true,
+    };
   }
 }
 
@@ -130,6 +163,7 @@ export async function checkPlanLimitsForCampaignChange({
   nextProducts,
   nextCollections,
   replaceCampaignId,
+  cache,
 }: {
   admin: AdminGraphqlClient;
   plan: PlanTier;
@@ -137,6 +171,7 @@ export async function checkPlanLimitsForCampaignChange({
   nextProducts: Array<SelectedProductInput | { productGid: string }>;
   nextCollections: Array<SelectedCollectionInput | { collectionGid: string }>;
   replaceCampaignId?: string;
+  cache?: CollectionResolutionCache;
 }): Promise<PlanLimitCheck> {
   const planConfig = plansByTier[plan];
   const retainedActiveCampaigns = campaigns.filter(
@@ -155,6 +190,7 @@ export async function checkPlanLimitsForCampaignChange({
   const coverageMap = await buildEffectiveCoverageMap({
     admin,
     campaigns: projectedCampaigns,
+    cache,
   });
   const usage = summarizeUsage({
     campaigns: projectedCampaigns,

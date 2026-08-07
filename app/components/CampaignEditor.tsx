@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Form, useFetcher, useNavigation } from "@remix-run/react";
 import {
   Banner,
@@ -241,17 +241,29 @@ export function CampaignEditor({
     [initialValues?.id, selectedCollections, selectedProducts],
   );
 
-  useEffect(() => {
-    const formData = new FormData();
-    formData.set("selectedProducts", JSON.stringify(selectedProducts));
-    formData.set("selectedCollections", JSON.stringify(selectedCollections));
+  // Remix hands back a new fetcher object on every state change, so keeping it
+  // in the dependency array below would restart the debounce each time the
+  // request settles and poll the coverage endpoint forever.
+  const coverageFetcherRef = useRef(coverageFetcher);
+  coverageFetcherRef.current = coverageFetcher;
 
-    if (initialValues?.id) {
-      formData.set("replaceCampaignId", initialValues.id);
+  useEffect(() => {
+    const { selectedProducts: products, selectedCollections: collections, replaceCampaignId } =
+      JSON.parse(coverageSelectionSignature) as {
+        selectedProducts: SelectedProductInput[];
+        selectedCollections: SelectedCollectionInput[];
+        replaceCampaignId: string | null;
+      };
+    const formData = new FormData();
+    formData.set("selectedProducts", JSON.stringify(products));
+    formData.set("selectedCollections", JSON.stringify(collections));
+
+    if (replaceCampaignId) {
+      formData.set("replaceCampaignId", replaceCampaignId);
     }
 
     const timeoutId = setTimeout(() => {
-      coverageFetcher.submit(formData, {
+      coverageFetcherRef.current.submit(formData, {
         method: "post",
         action: "/app/campaign-coverage",
       });
@@ -260,7 +272,7 @@ export function CampaignEditor({
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [coverageFetcher, coverageSelectionSignature, initialValues?.id, selectedCollections, selectedProducts]);
+  }, [coverageSelectionSignature]);
 
   const helperText = useMemo(() => {
     if (isUnlimitedPlan) {
@@ -421,6 +433,11 @@ export function CampaignEditor({
   const normalizedEndsAtDate = scheduleEnabled && customEndEnabled ? endsAtDate : "";
   const normalizedEndsAtTime = scheduleEnabled && customEndEnabled ? endsAtTime : "";
   const liveCoverageSummary = coverageFetcher.data;
+  // A failed lookup must not be reported as "0 products" - for a collection
+  // campaign that reads as "this campaign covers nothing", which is wrong.
+  const coverageCountIsUnknown = Boolean(
+    liveCoverageSummary?.collectionResolutionFailed && selectedCollections.length > 0,
+  );
   const selectedCoverageCount =
     liveCoverageSummary?.projectedCampaignCoverageCount ?? currentCampaignCoverageCount;
   const coverageMessage = liveCoverageSummary?.coverageMessage;
@@ -856,8 +873,11 @@ export function CampaignEditor({
                     collection{selectedCollections.length === 1 ? "" : "s"}.
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
-                    This campaign is currently projected to cover {selectedCoverageCount} product
-                    {selectedCoverageCount === 1 ? "" : "s"}.
+                    {coverageCountIsUnknown
+                      ? "Live collection coverage could not be read from Shopify just now, so the projected product count is unavailable."
+                      : `This campaign is currently projected to cover ${selectedCoverageCount} product${
+                          selectedCoverageCount === 1 ? "" : "s"
+                        }.`}
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
                     {isUnlimitedPlan
