@@ -18,7 +18,10 @@ import {
 } from "../models/discount.server";
 import { syncPlanFromBilling } from "../models/billing.server";
 import { createAutomaticDiscountInShopify } from "../models/shopify-discounts.server";
-import { resolveCampaignTargetProducts } from "../models/campaign-targets.server";
+import {
+  createCollectionResolutionCache,
+  resolveCampaignTargetProducts,
+} from "../models/campaign-targets.server";
 import { authenticate } from "../shopify.server";
 import {
   normalizeDiscountKind,
@@ -133,12 +136,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { error: collectionAccessError } satisfies ActionData;
   }
 
+  const collectionCache = createCollectionResolutionCache();
   const limitCheck = await checkPlanLimitsForCampaignChange({
     admin,
     plan: settings.plan,
     campaigns,
     nextProducts: selectedProducts,
     nextCollections: selectedCollections,
+    cache: collectionCache,
   });
 
   if (!limitCheck.ok) {
@@ -162,6 +167,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     admin,
     selectedProducts,
     selectedCollections,
+    cache: collectionCache,
   });
   try {
     const { shopifyDiscountId } = await createAutomaticDiscountInShopify({

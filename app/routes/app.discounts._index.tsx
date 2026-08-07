@@ -16,8 +16,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { InternalRouteButton } from "../components/InternalRouteButton";
 import {
-  buildEffectiveCoverageMapSafely,
-  calculatePlanUsageSafely,
+  buildCoverageAndUsageSafely,
   checkPlanLimitsForCampaignChange,
   getSchedulingAccessError,
 } from "../lib/plan-usage.server";
@@ -31,7 +30,10 @@ import {
   markCampaignSyncFailure,
 } from "../models/discount.server";
 import { syncPlanFromBilling } from "../models/billing.server";
-import { resolveCampaignTargetProducts } from "../models/campaign-targets.server";
+import {
+  createCollectionResolutionCache,
+  resolveCampaignTargetProducts,
+} from "../models/campaign-targets.server";
 import {
   createAutomaticDiscountInShopify,
   deleteAutomaticDiscountInShopify,
@@ -64,12 +66,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     admin,
   });
   const campaigns = await listCampaignsForShop(session.shop);
-  const usage = await calculatePlanUsageSafely({
-    admin,
-    campaigns,
-    context: "discount index loader",
-  });
-  const coverageMap = await buildEffectiveCoverageMapSafely({
+  const { coverageMap, usage, coverageResolutionFailed } = await buildCoverageAndUsageSafely({
     admin,
     campaigns,
     context: "discount index loader",
@@ -79,6 +76,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return {
     currentPlan,
     usage,
+    coverageResolutionFailed,
     campaigns: campaigns.map((campaign) => ({
       id: campaign.id,
       title: campaign.title,
@@ -142,6 +140,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         return { error: schedulingError };
       }
 
+      const collectionCache = createCollectionResolutionCache();
       const limitCheck = await checkPlanLimitsForCampaignChange({
         admin,
         plan: settings.plan,
@@ -149,6 +148,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         replaceCampaignId: campaign.id,
         nextProducts: campaign.products,
         nextCollections: campaign.collections,
+        cache: collectionCache,
       });
 
       if (!limitCheck.ok) {
@@ -159,6 +159,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         admin,
         selectedProducts: campaign.products,
         selectedCollections: campaign.collections,
+        cache: collectionCache,
       });
       const shopifyDiscountProducts =
         campaign.collections.length > 0 && campaign.products.length === 0
@@ -214,7 +215,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function DiscountsPage() {
   const actionData = useActionData<{ error?: string }>();
-  const { campaigns, usage, currentPlan } = useLoaderData<typeof loader>();
+  const { campaigns, usage, currentPlan, coverageResolutionFailed } =
+    useLoaderData<typeof loader>();
 
   return (
     <Page>
@@ -222,6 +224,14 @@ export default function DiscountsPage() {
 
       <BlockStack gap="400">
         {actionData?.error ? <Banner tone="critical">{actionData.error}</Banner> : null}
+
+        {coverageResolutionFailed ? (
+          <Banner tone="warning">
+            Shopify did not return live collection membership just now, so the
+            product counts below only include individually selected products.
+            Reload in a moment to see the full coverage.
+          </Banner>
+        ) : null}
 
         <InlineStack align="space-between" blockAlign="center">
           <Text as="h1" variant="headingLg">
@@ -265,7 +275,9 @@ export default function DiscountsPage() {
                 campaign.title,
                 campaign.status,
                 campaign.syncStatus,
-                campaign.productCount.toString(),
+                coverageResolutionFailed && campaign.collectionCount > 0
+                  ? "-"
+                  : campaign.productCount.toString(),
                 campaign.collectionCount.toString(),
                 campaign.kind === "PERCENTAGE"
                   ? `${String(campaign.value)}%`

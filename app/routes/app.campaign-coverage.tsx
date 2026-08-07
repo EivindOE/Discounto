@@ -7,7 +7,10 @@ import {
 import { plansByTier } from "../lib/plans";
 import { parseSelectedCollections, parseSelectedProducts } from "../lib/campaigns.server";
 import { listCampaignsForShop } from "../models/discount.server";
-import { resolveCampaignTargetProducts } from "../models/campaign-targets.server";
+import {
+  createCollectionResolutionCache,
+  resolveCampaignTargetProducts,
+} from "../models/campaign-targets.server";
 import { syncPlanFromBilling } from "../models/billing.server";
 import { authenticate } from "../shopify.server";
 
@@ -23,10 +26,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const selectedCollections = parseSelectedCollections(formData.get("selectedCollections"));
   const replaceCampaignId = String(formData.get("replaceCampaignId") ?? "").trim() || undefined;
   const campaigns = await listCampaignsForShop(session.shop);
+  // One cache for the whole request: the collection the merchant just picked is
+  // usually already covered by an existing campaign, so this halves the lookups.
+  const collectionCache = createCollectionResolutionCache();
   const usage = await calculatePlanUsageSafely({
     admin,
     campaigns,
     context: "campaign coverage action",
+    cache: collectionCache,
   });
   const collectionAccessError = getCollectionAccessError({
     plan: settings.plan,
@@ -65,6 +72,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       admin,
       selectedProducts,
       selectedCollections,
+      cache: collectionCache,
     });
 
     return json({

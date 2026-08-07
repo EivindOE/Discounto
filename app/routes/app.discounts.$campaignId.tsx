@@ -18,7 +18,10 @@ import {
   updateCampaign,
 } from "../models/discount.server";
 import { syncPlanFromBilling } from "../models/billing.server";
-import { resolveCampaignTargetProducts } from "../models/campaign-targets.server";
+import {
+  createCollectionResolutionCache,
+  resolveCampaignTargetProducts,
+} from "../models/campaign-targets.server";
 import {
   createAutomaticDiscountInShopify,
   updateAutomaticDiscountInShopify,
@@ -67,10 +70,12 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     throw new Response("Campaign not found", { status: 404 });
   }
   const campaigns = await listCampaignsForShop(session.shop);
+  const collectionCache = createCollectionResolutionCache();
   const usage = await calculatePlanUsageSafely({
     admin,
     campaigns,
     context: "edit discount loader",
+    cache: collectionCache,
   });
   let currentCoverageCount = campaign.products.length;
 
@@ -79,6 +84,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       admin,
       selectedProducts: campaign.products,
       selectedCollections: campaign.collections,
+      cache: collectionCache,
     });
     currentCoverageCount = currentCoverage.length;
   } catch (error) {
@@ -194,6 +200,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return { error: collectionAccessError } satisfies ActionData;
   }
 
+  const collectionCache = createCollectionResolutionCache();
   const limitCheck = await checkPlanLimitsForCampaignChange({
     admin,
     plan: settings.plan,
@@ -201,6 +208,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     replaceCampaignId: existingCampaign.id,
     nextProducts: selectedProducts,
     nextCollections: selectedCollections,
+    cache: collectionCache,
   });
 
   if (!limitCheck.ok) {
@@ -225,6 +233,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     admin,
     selectedProducts,
     selectedCollections,
+    cache: collectionCache,
   });
   try {
     const syncResult = existingCampaign.shopifyDiscountId

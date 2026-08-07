@@ -1,5 +1,8 @@
 import { json, type LoaderFunctionArgs } from "@remix-run/node";
-import { resolveCampaignTargetProducts } from "../models/campaign-targets.server";
+import {
+  createCollectionResolutionCache,
+  resolveCampaignTargetProducts,
+} from "../models/campaign-targets.server";
 import { listVisibleStorefrontCampaignsForShop } from "../models/discount.server";
 import { unauthenticated } from "../shopify.server";
 
@@ -28,37 +31,50 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   try {
     const campaigns = await listVisibleStorefrontCampaignsForShop(shop);
     const { admin } = await unauthenticated.admin(shop);
+    // Shared across every campaign so a collection used by several campaigns is
+    // fetched from Shopify once per storefront request.
+    const collectionCache = createCollectionResolutionCache();
+    const payload = [];
 
-    return json(
-      {
-        campaigns: await Promise.all(
-          campaigns.map(async (campaign) => ({
-            id: campaign.id,
-            title: campaign.title,
-            badgeText: campaign.badgeText,
-            discountKind: campaign.discountKind,
-            discountValue: campaign.discountValue,
-            startsAt: campaign.startsAt?.toISOString() ?? null,
-            endsAt: campaign.endsAt?.toISOString() ?? null,
-            collections: campaign.collections.map((collection) => ({
-              collectionGid: collection.collectionGid,
-              collectionHandle: collection.collectionHandle,
-            })),
-            products: (
-              await resolveCampaignTargetProducts({
-                admin,
-                selectedProducts: campaign.products,
-                selectedCollections: campaign.collections,
-              })
-            ).map((product) => ({
-              productGid: product.productGid,
-              productHandle: product.productHandle,
-            })),
-          })),
-        ),
-      },
-      { headers },
-    );
+    for (const campaign of campaigns) {
+      let products: Array<{ productGid: string; productHandle?: string | null }>;
+
+      try {
+        products = await resolveCampaignTargetProducts({
+          admin,
+          selectedProducts: campaign.products,
+          selectedCollections: campaign.collections,
+          cache: collectionCache,
+        });
+      } catch (error) {
+        // Keep the other campaigns' badges alive instead of blanking the store.
+        console.error("Discounto storefront proxy could not resolve campaign targets", {
+          error,
+          campaignId: campaign.id,
+        });
+        products = campaign.products;
+      }
+
+      payload.push({
+        id: campaign.id,
+        title: campaign.title,
+        badgeText: campaign.badgeText,
+        discountKind: campaign.discountKind,
+        discountValue: campaign.discountValue,
+        startsAt: campaign.startsAt?.toISOString() ?? null,
+        endsAt: campaign.endsAt?.toISOString() ?? null,
+        collections: campaign.collections.map((collection) => ({
+          collectionGid: collection.collectionGid,
+          collectionHandle: collection.collectionHandle,
+        })),
+        products: products.map((product) => ({
+          productGid: product.productGid,
+          productHandle: product.productHandle ?? null,
+        })),
+      });
+    }
+
+    return json({ campaigns: payload }, { headers });
   } catch (error) {
     console.error("Discounto storefront proxy failed", error);
     return json({ campaigns: [] }, { headers });
