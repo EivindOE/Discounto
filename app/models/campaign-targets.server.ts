@@ -41,6 +41,19 @@ const GRANTED_SCOPES_QUERY = `#graphql
   }
 `;
 
+// Cheap cross-check (~12 points): if the app can list collections but not the
+// one the picker handed us, the id is the problem, not the access.
+const COLLECTION_SAMPLE_QUERY = `#graphql
+  query DiscountoCollectionSample {
+    collections(first: 10) {
+      nodes {
+        id
+        handle
+      }
+    }
+  }
+`;
+
 const THROTTLE_MAX_ATTEMPTS = 5;
 const THROTTLE_MAX_WAIT_MS = 10_000;
 
@@ -283,6 +296,31 @@ async function fetchGrantedScopes(admin: AdminGraphqlClient) {
   }
 }
 
+async function fetchCollectionSample(admin: AdminGraphqlClient) {
+  try {
+    const response = await admin.graphql(COLLECTION_SAMPLE_QUERY);
+    const json = (await response.json()) as {
+      errors?: Array<{ message?: string | null }>;
+      data?: {
+        collections?: {
+          nodes?: Array<{ id?: string | null; handle?: string | null }>;
+        } | null;
+      };
+    };
+
+    if (json.errors?.length) {
+      return {
+        error: json.errors.map((error) => error.message).filter(Boolean).join(" "),
+        collections: [] as Array<{ id?: string | null; handle?: string | null }>,
+      };
+    }
+
+    return { error: null, collections: json.data?.collections?.nodes ?? [] };
+  } catch (error) {
+    return { error: String(error), collections: [] };
+  }
+}
+
 async function buildMissingCollectionError({
   admin,
   collectionGid,
@@ -290,11 +328,24 @@ async function buildMissingCollectionError({
   admin: AdminGraphqlClient;
   collectionGid: string;
 }) {
-  const grantedScopes = await fetchGrantedScopes(admin);
+  const [grantedScopes, sample] = await Promise.all([
+    fetchGrantedScopes(admin),
+    fetchCollectionSample(admin),
+  ]);
   const canReadProducts = grantedScopes.some(
     (scope) => scope === "read_products" || scope === "write_products",
   );
   const scopeList = grantedScopes.join(", ") || "none reported";
+  const visible = sample.collections
+    .map((collection) => `${collection.id ?? "?"} (${collection.handle ?? "?"})`)
+    .join(", ");
+
+  console.error("[discounto/coverage] Collection lookup returned nothing", {
+    requestedGid: collectionGid,
+    grantedScopes,
+    sampleError: sample.error,
+    collectionsVisibleToApp: visible || "none",
+  });
 
   if (!canReadProducts) {
     return new Error(
@@ -302,8 +353,16 @@ async function buildMissingCollectionError({
     );
   }
 
+  if (sample.collections.length === 0) {
+    return new Error(
+      `The app can not see any collections on this store even though product access is granted (granted: ${scopeList}${
+        sample.error ? `; collections query said: ${sample.error}` : ""
+      }).`,
+    );
+  }
+
   return new Error(
-    `Shopify returned no collection for ${collectionGid} even though product access is granted (granted: ${scopeList}). The collection may have been deleted or belong to another store.`,
+    `Shopify returned no collection for ${collectionGid}, but the app can see other collections on this store: ${visible}. The requested id likely belongs to a different store or has been deleted.`,
   );
 }
 
