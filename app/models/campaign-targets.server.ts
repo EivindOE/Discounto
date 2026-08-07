@@ -137,6 +137,7 @@ type CollectionProductsResponse = {
     extensions?: { code?: string | null } | null;
   }>;
   extensions?: GraphqlCostExtensions | null;
+  headers?: Record<string, string[] | undefined>;
   data?: { collection?: CollectionNode };
 };
 
@@ -294,12 +295,16 @@ async function fetchCollectionProductsPage({
     const collection = json.data?.collection ?? null;
 
     if (!collection) {
-      // Stop inferring from our own error paths and record what Shopify
-      // actually sent, verbatim.
-      console.error("[discounto/coverage] Raw response for unresolved collection", {
+      // Shopify answers null with no error for collections it filters out of
+      // the requested API version, and says so only in these headers. Keep
+      // them: they are the difference between a diagnosis and a guess.
+      console.error("[discounto/coverage] Collection resolved to nothing", {
         requestedGid: collectionGid,
         httpStatus: response.status,
-        body: JSON.stringify(json).slice(0, 4000),
+        apiVersion: json.headers?.["X-Shopify-Api-Version"]?.[0] ?? null,
+        incompatibleCollectionCount:
+          json.headers?.["Shopify-Incompatible-Collection-Count"]?.[0] ?? null,
+        shopifyRequestId: json.headers?.["X-Request-Id"]?.[0] ?? null,
       });
     }
 
@@ -384,13 +389,6 @@ async function buildMissingCollectionError({
     .map((collection) => `${collection.id ?? "?"} (${collection.handle ?? "?"})`)
     .join(", ");
 
-  console.error("[discounto/coverage] Collection lookup returned nothing", {
-    requestedGid: collectionGid,
-    grantedScopes,
-    sampleError: sample.error,
-    collectionsVisibleToApp: visible || "none",
-  });
-
   if (!canReadProducts) {
     return new Error(
       `The app cannot read collections on this store: neither read_products nor write_products is granted (granted: ${scopeList}). Run \`shopify app deploy\` to publish shopify.app.toml, then reinstall or re-authorize the app on the store.`,
@@ -406,7 +404,7 @@ async function buildMissingCollectionError({
   }
 
   return new Error(
-    `Shopify returned no collection for ${collectionGid}, but the app can see other collections on this store: ${visible}. The requested id likely belongs to a different store or has been deleted.`,
+    `Shopify returned no collection for ${collectionGid}, and reading its products directly did not work either, but the app can see other collections on this store: ${visible}. Check the Shopify-Incompatible-Collection-Count and X-Shopify-Api-Version headers logged just above.`,
   );
 }
 
@@ -536,14 +534,6 @@ async function fetchAllCollectionProducts({
         }).`,
       );
     }
-
-    console.log("[discounto/coverage] Collection page resolved", {
-      requestedGid: collectionGid,
-      resolvedGid: node.id ?? null,
-      handle: node.handle ?? null,
-      nodesOnPage: node.products.nodes?.length ?? 0,
-      hasNextPage: Boolean(node.products.pageInfo?.hasNextPage),
-    });
 
     for (const product of node.products.nodes ?? []) {
       if (!product.id) {
