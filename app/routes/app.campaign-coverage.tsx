@@ -25,6 +25,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const selectedProducts = parseSelectedProducts(formData.get("selectedProducts"));
   const selectedCollections = parseSelectedCollections(formData.get("selectedCollections"));
   const replaceCampaignId = String(formData.get("replaceCampaignId") ?? "").trim() || undefined;
+
+  console.log("[discounto/coverage] Coverage request received", {
+    plan: settings.plan,
+    rawSelectedCollections: String(formData.get("selectedCollections") ?? ""),
+    parsedCollectionCount: selectedCollections.length,
+    parsedProductCount: selectedProducts.length,
+  });
   const campaigns = await listCampaignsForShop(session.shop);
   // One cache for the whole request: the collection the merchant just picked is
   // usually already covered by an existing campaign, so this halves the lookups.

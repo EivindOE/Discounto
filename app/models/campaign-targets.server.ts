@@ -260,7 +260,32 @@ async function fetchAllCollectionProducts({
       after: cursor,
     });
 
-    for (const product of node?.products?.nodes ?? []) {
+    // A null node means Shopify could not resolve the id at all - wrong id,
+    // deleted collection, or missing read_products access. Reporting that as
+    // "0 products" is exactly what hid this bug, so make it loud instead.
+    if (!node) {
+      throw new Error(
+        `Shopify returned no collection for ${collectionGid}. Check that the id is a collection and that the app still has read_products access.`,
+      );
+    }
+
+    if (!node.products) {
+      throw new Error(
+        `Shopify returned a node for ${collectionGid} without a products connection (resolved id: ${
+          node.id ?? "unknown"
+        }).`,
+      );
+    }
+
+    console.log("[discounto/coverage] Collection page resolved", {
+      requestedGid: collectionGid,
+      resolvedGid: node.id ?? null,
+      handle: node.handle ?? null,
+      nodesOnPage: node.products.nodes?.length ?? 0,
+      hasNextPage: Boolean(node.products.pageInfo?.hasNextPage),
+    });
+
+    for (const product of node.products.nodes ?? []) {
       if (!product.id) {
         continue;
       }
@@ -273,8 +298,14 @@ async function fetchAllCollectionProducts({
       });
     }
 
-    hasNextPage = Boolean(node?.products?.pageInfo?.hasNextPage);
-    cursor = node?.products?.pageInfo?.endCursor ?? null;
+    hasNextPage = Boolean(node.products.pageInfo?.hasNextPage);
+    cursor = node.products.pageInfo?.endCursor ?? null;
+  }
+
+  if (products.length === 0) {
+    console.warn("[discounto/coverage] Collection resolved to zero products", {
+      collectionGid,
+    });
   }
 
   return products;
