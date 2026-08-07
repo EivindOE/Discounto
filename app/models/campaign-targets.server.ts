@@ -6,24 +6,36 @@ import type {
 // Keep this query as cheap as possible. Shopify prices a connection up front as
 // `first` x (cost of each node), so every extra object field costs 250 points on
 // its own. Only the id/handle are consumed downstream, so no nested objects here.
+// Use `collection(id:)` rather than `node(id:)`. The generic `node` field
+// returns null both for "does not exist" and for "your app may not read this",
+// with no error either way - which is what made a permission problem look like
+// an empty collection.
 const COLLECTION_PRODUCTS_QUERY = `#graphql
   query DiscountoCollectionProducts($id: ID!, $after: String) {
-    node(id: $id) {
-      ... on Collection {
-        id
-        title
-        handle
-        products(first: 250, after: $after) {
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
-          nodes {
-            id
-            title
-            handle
-          }
+    collection(id: $id) {
+      id
+      title
+      handle
+      products(first: 250, after: $after) {
+        pageInfo {
+          hasNextPage
+          endCursor
         }
+        nodes {
+          id
+          title
+          handle
+        }
+      }
+    }
+  }
+`;
+
+const GRANTED_SCOPES_QUERY = `#graphql
+  query DiscountoGrantedScopes {
+    currentAppInstallation {
+      accessScopes {
+        handle
       }
     }
   }
@@ -93,7 +105,7 @@ type CollectionProductsResponse = {
     extensions?: { code?: string | null } | null;
   }>;
   extensions?: GraphqlCostExtensions | null;
-  data?: { node?: CollectionNode };
+  data?: { collection?: CollectionNode };
 };
 
 export type CampaignTargetSnapshot = {
@@ -234,11 +246,64 @@ async function fetchCollectionProductsPage({
       throw new Error(topLevelErrors.join(" "));
     }
 
-    return json.data?.node ?? null;
+    return json.data?.collection ?? null;
   }
 
   throw new Error(
     `Shopify kept throttling the collection membership lookup: ${lastThrottleMessage}`,
+  );
+}
+
+/**
+ * Read back what the store actually granted. Declaring a scope in
+ * shopify.app.toml is not the same as having it: the config only reaches
+ * Shopify via `shopify app deploy`, and the merchant then has to re-authorize.
+ */
+async function fetchGrantedScopes(admin: AdminGraphqlClient) {
+  try {
+    const response = await admin.graphql(GRANTED_SCOPES_QUERY);
+    const json = (await response.json()) as {
+      data?: {
+        currentAppInstallation?: {
+          accessScopes?: Array<{ handle?: string | null }> | null;
+        } | null;
+      };
+    };
+
+    return (
+      json.data?.currentAppInstallation?.accessScopes
+        ?.map((scope) => scope.handle)
+        .filter((handle): handle is string => Boolean(handle)) ?? []
+    );
+  } catch (error) {
+    console.error("[discounto/coverage] Could not read granted access scopes", {
+      error,
+    });
+    return [];
+  }
+}
+
+async function buildMissingCollectionError({
+  admin,
+  collectionGid,
+}: {
+  admin: AdminGraphqlClient;
+  collectionGid: string;
+}) {
+  const grantedScopes = await fetchGrantedScopes(admin);
+  const canReadProducts = grantedScopes.some(
+    (scope) => scope === "read_products" || scope === "write_products",
+  );
+  const scopeList = grantedScopes.join(", ") || "none reported";
+
+  if (!canReadProducts) {
+    return new Error(
+      `The app cannot read collections on this store: neither read_products nor write_products is granted (granted: ${scopeList}). Run \`shopify app deploy\` to publish shopify.app.toml, then reinstall or re-authorize the app on the store.`,
+    );
+  }
+
+  return new Error(
+    `Shopify returned no collection for ${collectionGid} even though product access is granted (granted: ${scopeList}). The collection may have been deleted or belong to another store.`,
   );
 }
 
@@ -260,13 +325,10 @@ async function fetchAllCollectionProducts({
       after: cursor,
     });
 
-    // A null node means Shopify could not resolve the id at all - wrong id,
-    // deleted collection, or missing read_products access. Reporting that as
-    // "0 products" is exactly what hid this bug, so make it loud instead.
+    // Reporting a missing collection as "0 products" is exactly what hid this
+    // bug, so make it loud - and say which of the two causes it actually is.
     if (!node) {
-      throw new Error(
-        `Shopify returned no collection for ${collectionGid}. Check that the id is a collection and that the app still has read_products access.`,
-      );
+      throw await buildMissingCollectionError({ admin, collectionGid });
     }
 
     if (!node.products) {
