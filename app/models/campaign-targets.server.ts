@@ -41,11 +41,24 @@ const GRANTED_SCOPES_QUERY = `#graphql
   }
 `;
 
-// Cheap cross-check (~12 points): if the app can list collections but not the
-// one the picker handed us, the id is the problem, not the access.
+// A stored collection id goes stale as soon as the merchant deletes and
+// recreates a collection. The handle survives that, so use it to recover.
+const COLLECTION_ID_BY_HANDLE_QUERY = `#graphql
+  query DiscountoCollectionIdByHandle($query: String!) {
+    collections(first: 1, query: $query) {
+      nodes {
+        id
+        handle
+      }
+    }
+  }
+`;
+
+// Newest first - a stale id is usually one the merchant just replaced, so the
+// replacement is far more useful here than the ten oldest collections.
 const COLLECTION_SAMPLE_QUERY = `#graphql
   query DiscountoCollectionSample {
-    collections(first: 10) {
+    collections(first: 10, sortKey: ID, reverse: true) {
       nodes {
         id
         handle
@@ -164,12 +177,16 @@ function normalizeProducts(
   return [...byId.values()];
 }
 
-function collectUniqueCollectionGids(
+/**
+ * Keeps the handle alongside the id: the id is what we stored, the handle is
+ * what still works after a collection has been deleted and recreated.
+ */
+function collectUniqueCollectionTargets(
   collections: Array<
     SelectedCollectionInput | { collectionGid: string } | null | undefined
   >,
 ) {
-  const gids: string[] = [];
+  const targets: Array<{ collectionGid: string; collectionHandle: string | null }> = [];
   const seen = new Set<string>();
 
   for (const collection of collections) {
@@ -180,10 +197,16 @@ function collectUniqueCollectionGids(
     }
 
     seen.add(collectionGid);
-    gids.push(collectionGid);
+    targets.push({
+      collectionGid,
+      collectionHandle:
+        collection && "collectionHandle" in collection
+          ? collection.collectionHandle ?? null
+          : null,
+    });
   }
 
-  return gids;
+  return targets;
 }
 
 function isThrottledResponse(json: CollectionProductsResponse) {
@@ -366,26 +389,92 @@ async function buildMissingCollectionError({
   );
 }
 
+async function resolveCollectionIdByHandle({
+  admin,
+  collectionHandle,
+}: {
+  admin: AdminGraphqlClient;
+  collectionHandle: string;
+}) {
+  try {
+    const response = await admin.graphql(COLLECTION_ID_BY_HANDLE_QUERY, {
+      variables: { query: `handle:${collectionHandle}` },
+    });
+    const json = (await response.json()) as {
+      errors?: Array<{ message?: string | null }>;
+      data?: {
+        collections?: {
+          nodes?: Array<{ id?: string | null; handle?: string | null }>;
+        } | null;
+      };
+    };
+
+    if (json.errors?.length) {
+      return null;
+    }
+
+    const match = json.data?.collections?.nodes?.find(
+      (node) => node.handle === collectionHandle,
+    );
+
+    return match?.id ?? null;
+  } catch (error) {
+    console.error("[discounto/coverage] Handle lookup failed", {
+      collectionHandle,
+      error,
+    });
+    return null;
+  }
+}
+
 async function fetchAllCollectionProducts({
   admin,
   collectionGid,
+  collectionHandle,
 }: {
   admin: AdminGraphqlClient;
   collectionGid: string;
+  collectionHandle?: string | null;
 }) {
   const products: EffectiveProductTarget[] = [];
   let cursor: string | null = null;
   let hasNextPage = true;
+  let effectiveGid = collectionGid;
 
   while (hasNextPage) {
-    const node = await fetchCollectionProductsPage({
+    let node = await fetchCollectionProductsPage({
       admin,
-      collectionGid,
+      collectionGid: effectiveGid,
       after: cursor,
     });
 
+    // A stored id stops resolving the moment the merchant deletes and
+    // recreates a collection. The handle survives that, so recover through it
+    // rather than reporting the campaign as covering nothing.
+    if (!node && collectionHandle && effectiveGid === collectionGid) {
+      const recoveredGid = await resolveCollectionIdByHandle({
+        admin,
+        collectionHandle,
+      });
+
+      if (recoveredGid && recoveredGid !== collectionGid) {
+        console.warn("[discounto/coverage] Stored collection id is stale, recovered by handle", {
+          storedGid: collectionGid,
+          recoveredGid,
+          collectionHandle,
+        });
+
+        effectiveGid = recoveredGid;
+        node = await fetchCollectionProductsPage({
+          admin,
+          collectionGid: effectiveGid,
+          after: cursor,
+        });
+      }
+    }
+
     // Reporting a missing collection as "0 products" is exactly what hid this
-    // bug, so make it loud - and say which of the two causes it actually is.
+    // bug, so make it loud - and say which of the causes it actually is.
     if (!node) {
       throw await buildMissingCollectionError({ admin, collectionGid });
     }
@@ -435,10 +524,12 @@ async function fetchAllCollectionProducts({
 function resolveSingleCollection({
   admin,
   collectionGid,
+  collectionHandle,
   cache,
 }: {
   admin: AdminGraphqlClient;
   collectionGid: string;
+  collectionHandle?: string | null;
   cache: CollectionResolutionCache;
 }) {
   const cached = cache.get(collectionGid);
@@ -449,12 +540,14 @@ function resolveSingleCollection({
 
   // Cache the promise, not the result, so parallel campaigns sharing a
   // collection issue a single Shopify query instead of racing each other.
-  const pending = fetchAllCollectionProducts({ admin, collectionGid }).catch(
-    (error) => {
-      cache.delete(collectionGid);
-      throw error;
-    },
-  );
+  const pending = fetchAllCollectionProducts({
+    admin,
+    collectionGid,
+    collectionHandle,
+  }).catch((error) => {
+    cache.delete(collectionGid);
+    throw error;
+  });
 
   cache.set(collectionGid, pending);
 
@@ -472,12 +565,17 @@ export async function resolveCollectionProducts({
   >;
   cache?: CollectionResolutionCache;
 }) {
-  const collectionGids = collectUniqueCollectionGids(selectedCollections);
+  const targets = collectUniqueCollectionTargets(selectedCollections);
   const resolvedProducts: EffectiveProductTarget[] = [];
 
-  for (const collectionGid of collectionGids) {
+  for (const target of targets) {
     resolvedProducts.push(
-      ...(await resolveSingleCollection({ admin, collectionGid, cache })),
+      ...(await resolveSingleCollection({
+        admin,
+        collectionGid: target.collectionGid,
+        collectionHandle: target.collectionHandle,
+        cache,
+      })),
     );
   }
 
@@ -520,12 +618,20 @@ export async function buildEffectiveCoverageMap({
 }) {
   // Warm every distinct collection once, sequentially, before fanning out. Ten
   // campaigns pointing at the same collection then cost one Shopify query.
-  const collectionGids = collectUniqueCollectionGids(
+  const targets = collectUniqueCollectionTargets(
     campaigns.flatMap((campaign) => campaign.collections),
   );
 
-  for (const collectionGid of collectionGids) {
-    await resolveSingleCollection({ admin, collectionGid, cache });
+  // Deliberately not swallowing failures here. Caching an unresolved
+  // collection as "no products" would put the lying zero straight back: the
+  // caller must be able to tell "covers nothing" from "could not be read".
+  for (const target of targets) {
+    await resolveSingleCollection({
+      admin,
+      collectionGid: target.collectionGid,
+      collectionHandle: target.collectionHandle,
+      cache,
+    });
   }
 
   const coverageEntries = await Promise.all(
