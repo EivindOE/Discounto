@@ -275,14 +275,33 @@ async function fetchCollectionProductsPage({
       continue;
     }
 
-    const topLevelErrors =
-      json.errors?.map((error) => error.message).filter(Boolean) ?? [];
+    // Do not gate this on a `message` being present. An error object with an
+    // unexpected shape used to be filtered away to nothing, and the query then
+    // returned a silent null that read as "this collection is empty".
+    if (json.errors?.length) {
+      const messages = json.errors
+        .map((error) => error.message)
+        .filter(Boolean)
+        .join(" ");
 
-    if (topLevelErrors.length > 0) {
-      throw new Error(topLevelErrors.join(" "));
+      throw new Error(
+        messages || `Shopify returned errors without messages: ${JSON.stringify(json.errors)}`,
+      );
     }
 
-    return json.data?.collection ?? null;
+    const collection = json.data?.collection ?? null;
+
+    if (!collection) {
+      // Stop inferring from our own error paths and record what Shopify
+      // actually sent, verbatim.
+      console.error("[discounto/coverage] Raw response for unresolved collection", {
+        requestedGid: collectionGid,
+        httpStatus: response.status,
+        body: JSON.stringify(json).slice(0, 4000),
+      });
+    }
+
+    return collection;
   }
 
   throw new Error(
@@ -457,12 +476,17 @@ async function fetchAllCollectionProducts({
         collectionHandle,
       });
 
+      // Log this even when the ids match. "Handle finds the very id that the
+      // id lookup just denied" is the most informative outcome of all, and the
+      // stale-id branch below would have hidden it.
+      console.warn("[discounto/coverage] Handle lookup after failed id lookup", {
+        storedGid: collectionGid,
+        recoveredGid,
+        collectionHandle,
+        idsMatch: recoveredGid === collectionGid,
+      });
+
       if (recoveredGid && recoveredGid !== collectionGid) {
-        console.warn("[discounto/coverage] Stored collection id is stale, recovered by handle", {
-          storedGid: collectionGid,
-          recoveredGid,
-          collectionHandle,
-        });
 
         effectiveGid = recoveredGid;
         node = await fetchCollectionProductsPage({
