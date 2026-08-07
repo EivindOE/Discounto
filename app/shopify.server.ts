@@ -15,10 +15,11 @@ export const BUSINESS_PLAN = "BUSINESS";
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
-  // Must stay recent: Shopify omits collections that are incompatible with the
-  // requested version, returning null with no error and reporting the count in
-  // the Shopify-Incompatible-Collection-Count response header.
-  apiVersion: ApiVersion.April26,
+  // 2026-07 or later is required. Collections that use the collection model
+  // introduced in 2026-07 are deliberately filtered out of earlier versions -
+  // the legacy ruleSet cannot represent them - so they come back as null with
+  // no error, counted only in the Shopify-Incompatible-Collection-Count header.
+  apiVersion: ApiVersion.July26,
   scopes: process.env.SCOPES?.split(","),
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
@@ -78,7 +79,7 @@ const shopify = shopifyApp({
 });
 
 export default shopify;
-export const apiVersion = ApiVersion.April26;
+export const apiVersion = ApiVersion.July26;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;

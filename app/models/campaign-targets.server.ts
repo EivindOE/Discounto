@@ -41,21 +41,27 @@ const GRANTED_SCOPES_QUERY = `#graphql
   }
 `;
 
-// A stored collection id goes stale as soon as the merchant deletes and
-// recreates a collection. The handle survives that, so use it to recover.
-const COLLECTION_ID_BY_HANDLE_QUERY = `#graphql
-  query DiscountoCollectionIdByHandle($query: String!) {
-    collections(first: 1, query: $query) {
+// Shopify's own version-independent way to read collection membership. The
+// Collection object is filtered out of API versions older than 2026-07 when it
+// uses the new collection model, but its products stay queryable this way.
+const PRODUCTS_BY_COLLECTION_QUERY = `#graphql
+  query DiscountoProductsByCollection($query: String!, $after: String) {
+    products(first: 250, after: $after, query: $query) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
       nodes {
         id
+        title
         handle
       }
     }
   }
 `;
 
-// Newest first - a stale id is usually one the merchant just replaced, so the
-// replacement is far more useful here than the ten oldest collections.
+// Newest first: the collections most likely to be involved in a failure are
+// recent ones, and the ten oldest said nothing useful.
 const COLLECTION_SAMPLE_QUERY = `#graphql
   query DiscountoCollectionSample {
     collections(first: 10, sortKey: ID, reverse: true) {
@@ -177,10 +183,6 @@ function normalizeProducts(
   return [...byId.values()];
 }
 
-/**
- * Keeps the handle alongside the id: the id is what we stored, the handle is
- * what still works after a collection has been deleted and recreated.
- */
 function collectUniqueCollectionTargets(
   collections: Array<
     SelectedCollectionInput | { collectionGid: string } | null | undefined
@@ -408,92 +410,116 @@ async function buildMissingCollectionError({
   );
 }
 
-async function resolveCollectionIdByHandle({
+function getNumericId(gid: string) {
+  const match = /\/(\d+)(?:\?|$)/.exec(gid);
+  return match?.[1] ?? null;
+}
+
+/**
+ * Reads collection membership through the product search filter instead of the
+ * Collection object. Shopify documents this as the way to reach collections
+ * that older API versions filter out, so it keeps working even if a store has
+ * a collection this app's pinned version cannot represent.
+ */
+async function fetchCollectionProductsViaProductSearch({
   admin,
-  collectionHandle,
+  collectionGid,
 }: {
   admin: AdminGraphqlClient;
-  collectionHandle: string;
+  collectionGid: string;
 }) {
-  try {
-    const response = await admin.graphql(COLLECTION_ID_BY_HANDLE_QUERY, {
-      variables: { query: `handle:${collectionHandle}` },
+  const numericId = getNumericId(collectionGid);
+
+  if (!numericId) {
+    return null;
+  }
+
+  const products: EffectiveProductTarget[] = [];
+  let cursor: string | null = null;
+  let hasNextPage = true;
+
+  while (hasNextPage) {
+    const response = await admin.graphql(PRODUCTS_BY_COLLECTION_QUERY, {
+      variables: {
+        query: `collection_id:${numericId}`,
+        after: cursor,
+      },
     });
     const json = (await response.json()) as {
       errors?: Array<{ message?: string | null }>;
       data?: {
-        collections?: {
-          nodes?: Array<{ id?: string | null; handle?: string | null }>;
+        products?: {
+          pageInfo?: { hasNextPage?: boolean | null; endCursor?: string | null } | null;
+          nodes?: Array<{
+            id?: string | null;
+            title?: string | null;
+            handle?: string | null;
+          }>;
         } | null;
       };
     };
 
     if (json.errors?.length) {
-      return null;
+      throw new Error(
+        json.errors.map((error) => error.message).filter(Boolean).join(" ") ||
+          `Product search for ${collectionGid} failed: ${JSON.stringify(json.errors)}`,
+      );
     }
 
-    const match = json.data?.collections?.nodes?.find(
-      (node) => node.handle === collectionHandle,
-    );
+    for (const product of json.data?.products?.nodes ?? []) {
+      if (!product.id) {
+        continue;
+      }
 
-    return match?.id ?? null;
-  } catch (error) {
-    console.error("[discounto/coverage] Handle lookup failed", {
-      collectionHandle,
-      error,
-    });
-    return null;
+      products.push({
+        productGid: product.id,
+        productTitle: product.title ?? null,
+        productHandle: product.handle ?? null,
+        imageUrl: null,
+      });
+    }
+
+    hasNextPage = Boolean(json.data?.products?.pageInfo?.hasNextPage);
+    cursor = json.data?.products?.pageInfo?.endCursor ?? null;
   }
+
+  return products;
 }
 
 async function fetchAllCollectionProducts({
   admin,
   collectionGid,
-  collectionHandle,
 }: {
   admin: AdminGraphqlClient;
   collectionGid: string;
-  collectionHandle?: string | null;
 }) {
   const products: EffectiveProductTarget[] = [];
   let cursor: string | null = null;
   let hasNextPage = true;
-  let effectiveGid = collectionGid;
 
   while (hasNextPage) {
-    let node = await fetchCollectionProductsPage({
+    const node = await fetchCollectionProductsPage({
       admin,
-      collectionGid: effectiveGid,
+      collectionGid,
       after: cursor,
     });
 
-    // A stored id stops resolving the moment the merchant deletes and
-    // recreates a collection. The handle survives that, so recover through it
-    // rather than reporting the campaign as covering nothing.
-    if (!node && collectionHandle && effectiveGid === collectionGid) {
-      const recoveredGid = await resolveCollectionIdByHandle({
+    // Shopify filters collections built on the newer collection model out of
+    // older API versions, answering null with no error. We pin a version that
+    // can see them, but a store can still hold one this version cannot
+    // represent, so fall back to reading membership through product search.
+    if (!node && cursor === null) {
+      const viaSearch = await fetchCollectionProductsViaProductSearch({
         admin,
-        collectionHandle,
+        collectionGid,
       });
 
-      // Log this even when the ids match. "Handle finds the very id that the
-      // id lookup just denied" is the most informative outcome of all, and the
-      // stale-id branch below would have hidden it.
-      console.warn("[discounto/coverage] Handle lookup after failed id lookup", {
-        storedGid: collectionGid,
-        recoveredGid,
-        collectionHandle,
-        idsMatch: recoveredGid === collectionGid,
-      });
-
-      if (recoveredGid && recoveredGid !== collectionGid) {
-
-        effectiveGid = recoveredGid;
-        node = await fetchCollectionProductsPage({
-          admin,
-          collectionGid: effectiveGid,
-          after: cursor,
+      if (viaSearch) {
+        console.warn("[discounto/coverage] Collection unreadable on this API version, used product search", {
+          collectionGid,
+          productCount: viaSearch.length,
         });
+        return viaSearch;
       }
     }
 
@@ -548,12 +574,10 @@ async function fetchAllCollectionProducts({
 function resolveSingleCollection({
   admin,
   collectionGid,
-  collectionHandle,
   cache,
 }: {
   admin: AdminGraphqlClient;
   collectionGid: string;
-  collectionHandle?: string | null;
   cache: CollectionResolutionCache;
 }) {
   const cached = cache.get(collectionGid);
@@ -567,7 +591,6 @@ function resolveSingleCollection({
   const pending = fetchAllCollectionProducts({
     admin,
     collectionGid,
-    collectionHandle,
   }).catch((error) => {
     cache.delete(collectionGid);
     throw error;
@@ -597,7 +620,6 @@ export async function resolveCollectionProducts({
       ...(await resolveSingleCollection({
         admin,
         collectionGid: target.collectionGid,
-        collectionHandle: target.collectionHandle,
         cache,
       })),
     );
@@ -653,7 +675,6 @@ export async function buildEffectiveCoverageMap({
     await resolveSingleCollection({
       admin,
       collectionGid: target.collectionGid,
-      collectionHandle: target.collectionHandle,
       cache,
     });
   }
