@@ -98,20 +98,33 @@
 }
 
 .bd-chip-wrap {
+  --bd-chip-offset-y: 0.75rem;
+  --bd-chip-offset-x: 0.75rem;
   position: absolute;
-  top: 0.75rem;
   z-index: 9;
   display: flex;
   pointer-events: none;
   max-width: calc(100% - 1.5rem);
 }
 
-.bd-chip-wrap--top-left {
-  left: 0.75rem;
+.bd-chip-wrap--top-left,
+.bd-chip-wrap--top-right {
+  top: var(--bd-chip-offset-y);
 }
 
-.bd-chip-wrap--top-right {
-  right: 0.75rem;
+.bd-chip-wrap--bottom-left,
+.bd-chip-wrap--bottom-right {
+  bottom: var(--bd-chip-offset-y);
+}
+
+.bd-chip-wrap--top-left,
+.bd-chip-wrap--bottom-left {
+  left: var(--bd-chip-offset-x);
+}
+
+.bd-chip-wrap--top-right,
+.bd-chip-wrap--bottom-right {
+  right: var(--bd-chip-offset-x);
 }
 
 .bd-chip {
@@ -135,7 +148,7 @@
 }
 
 .product-media .bd-chip-wrap {
-  top: 0.65rem;
+  --bd-chip-offset-y: 0.65rem;
 }
 
 .bd-chip--inline {
@@ -218,15 +231,8 @@
 
 @media (max-width: 749px) {
   .bd-chip-wrap {
-    top: 0.5rem;
-  }
-
-  .bd-chip-wrap--top-left {
-    left: 0.5rem;
-  }
-
-  .bd-chip-wrap--top-right {
-    right: 0.5rem;
+    --bd-chip-offset-y: 0.5rem;
+    --bd-chip-offset-x: 0.5rem;
   }
 
   .bd-chip {
