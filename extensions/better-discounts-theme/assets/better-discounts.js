@@ -18,6 +18,7 @@
   ];
   const NATIVE_BADGE_SELECTOR = ".product-badges";
   const PRODUCT_BLOCK_SELECTOR = ".bd-badge--product[data-bd-product-handle]";
+  const BADGE_POSITIONS = ["top-left", "top-right", "bottom-left", "bottom-right"];
 
   function log(config, message, payload) {
     if (!config?.debug) return;
@@ -112,9 +113,14 @@
     el.style.setProperty("--bd-savings-color", config.savingsColor);
   }
 
+  function resolveBadgePosition(config) {
+    const position = String(config?.badgePosition || "").trim();
+    return BADGE_POSITIONS.includes(position) ? position : "top-left";
+  }
+
   function createImageChip(label, config) {
     const wrap = document.createElement("div");
-    wrap.className = `bd-chip-wrap bd-chip-wrap--${config.badgePosition}`;
+    wrap.className = `bd-chip-wrap bd-chip-wrap--${resolveBadgePosition(config)}`;
     applyCustomProperties(wrap, config);
 
     const chip = document.createElement("span");
