@@ -3,6 +3,14 @@ import type {
   SelectedCollectionInput,
   SelectedProductInput,
 } from "../models/discount.server";
+import {
+  normalizeBadgeLayout,
+  normalizeOfferType,
+  offerIncludesDiscount,
+  offerIncludesFreeShipping,
+  type CampaignBadgeLayoutType,
+  type CampaignOfferType,
+} from "./campaign-offer";
 
 export function parseSelectedProducts(value: FormDataEntryValue | null): SelectedProductInput[] {
   if (typeof value !== "string" || !value.trim()) {
@@ -95,4 +103,40 @@ export function parseOptionalIsoDate(value: FormDataEntryValue | null) {
 
 export function normalizeDiscountKind(value: FormDataEntryValue | null): DiscountKind {
   return String(value ?? "") === "FIXED_AMOUNT" ? "FIXED_AMOUNT" : "PERCENTAGE";
+}
+
+export type CampaignOfferFields = {
+  offerType: CampaignOfferType;
+  discountKind: DiscountKind | null;
+  discountValue: number | null;
+  freeShippingBadgeText: string | null;
+  badgeLayout: CampaignBadgeLayoutType;
+};
+
+export function parseCampaignOfferFields(
+  formData: FormData,
+): { ok: true; fields: CampaignOfferFields } | { ok: false; error: string } {
+  const offerType = normalizeOfferType(formData.get("offerType"));
+  const includesDiscount = offerIncludesDiscount(offerType);
+  const discountValue = Number(formData.get("discountValue") ?? 0);
+
+  if (includesDiscount && (!Number.isFinite(discountValue) || discountValue <= 0)) {
+    return { ok: false, error: "Enter a discount value greater than 0." };
+  }
+
+  const freeShippingBadgeText = String(formData.get("freeShippingBadgeText") ?? "").trim();
+
+  return {
+    ok: true,
+    fields: {
+      offerType,
+      discountKind: includesDiscount ? normalizeDiscountKind(formData.get("discountKind")) : null,
+      discountValue: includesDiscount ? discountValue : null,
+      freeShippingBadgeText:
+        offerIncludesFreeShipping(offerType) && freeShippingBadgeText
+          ? freeShippingBadgeText
+          : null,
+      badgeLayout: normalizeBadgeLayout(formData.get("badgeLayout")),
+    },
+  };
 }
