@@ -169,22 +169,22 @@
 
   // Badges that share a corner go into one wrap so they stack instead of overlapping.
   function appendImageBadges(imageTarget, badges, config) {
-    const labelsByPosition = new Map();
+    const badgesByPosition = new Map();
 
     badges.forEach((badge) => {
       const position = badge.freeShipping
         ? resolveFreeShippingBadgePosition(config)
         : resolveBadgePosition(config);
 
-      if (!labelsByPosition.has(position)) {
-        labelsByPosition.set(position, []);
+      if (!badgesByPosition.has(position)) {
+        badgesByPosition.set(position, []);
       }
 
-      labelsByPosition.get(position).push(badge.label);
+      badgesByPosition.get(position).push(badge);
     });
 
-    labelsByPosition.forEach((labels, position) => {
-      imageTarget.appendChild(createImageChip(labels, position, config));
+    badgesByPosition.forEach((positionBadges, position) => {
+      imageTarget.appendChild(createImageChip(positionBadges, position, config));
     });
   }
 
@@ -197,16 +197,50 @@
       .replace(/'/g, "&#39;");
   }
 
-  function createImageChip(labels, position, config) {
+  // An unset free shipping color keeps the discount badge's color.
+  function resolveFreeShippingColorProperties(accentColor, textColor) {
+    const properties = [];
+    const accent = String(accentColor || "").trim();
+    const text = String(textColor || "").trim();
+
+    if (accent) {
+      properties.push(["--bd-accent", accent]);
+    }
+
+    if (text) {
+      properties.push(["--bd-badge-text", text]);
+    }
+
+    return properties;
+  }
+
+  function buildFreeShippingPillStyle(block) {
+    const declarations = resolveFreeShippingColorProperties(
+      block.getAttribute("data-bd-free-shipping-accent"),
+      block.getAttribute("data-bd-free-shipping-text"),
+    ).map(([name, value]) => `${name}: ${value}`);
+
+    return declarations.length ? ` style="${escapeHtml(declarations.join("; "))}"` : "";
+  }
+
+  function createImageChip(badges, position, config) {
     const wrap = document.createElement("div");
     wrap.className = `bd-chip-wrap bd-chip-wrap--${position}`;
     applyCustomProperties(wrap, config);
 
-    labels.forEach((label) => {
+    badges.forEach((badge) => {
       const chip = document.createElement("span");
       chip.className = `bd-chip bd-chip--image bd-style-${config.cardStyle}`;
-      chip.textContent = label;
+      chip.textContent = badge.label;
       applyCustomProperties(chip, config);
+
+      if (badge.freeShipping) {
+        resolveFreeShippingColorProperties(
+          config.freeShippingAccentColor,
+          config.freeShippingTextColor,
+        ).forEach(([name, value]) => chip.style.setProperty(name, value));
+      }
+
       wrap.appendChild(chip);
     });
 
@@ -705,7 +739,7 @@
     if (config.showImageBadge && !fallbackData.imageTarget.querySelector(".bd-chip-wrap")) {
       fallbackData.imageTarget.classList.add("bd-sale-target");
       fallbackData.imageTarget.appendChild(
-        createImageChip([label], resolveBadgePosition(config), config),
+        createImageChip([{ label, freeShipping: false }], resolveBadgePosition(config), config),
       );
       hideNativeBadge(fallbackData.nativeBadge);
     }
@@ -748,7 +782,9 @@
         if (block.getAttribute("data-bd-show-badge") === "true") {
           block.insertAdjacentHTML(
             "afterbegin",
-            `<span class="bd-badge__pill bd-badge__pill--free-shipping">${escapeHtml(
+            `<span class="bd-badge__pill bd-badge__pill--free-shipping"${buildFreeShippingPillStyle(
+              block,
+            )}>${escapeHtml(
               resolveFreeShippingLabel(campaign),
             )}</span>`,
           );
@@ -827,8 +863,9 @@
       if (showBadge) {
         resolveCampaignBadges(campaign, label).forEach((badge) => {
           const modifier = badge.freeShipping ? " bd-badge__pill--free-shipping" : "";
+          const style = badge.freeShipping ? buildFreeShippingPillStyle(block) : "";
           fragments.push(
-            `<span class="bd-badge__pill${modifier}">${escapeHtml(badge.label)}</span>`,
+            `<span class="bd-badge__pill${modifier}"${style}>${escapeHtml(badge.label)}</span>`,
           );
         });
       }

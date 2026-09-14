@@ -43,6 +43,8 @@
     data-bd-show-badge="{{ block.settings.show_badge }}"
     data-bd-show-savings-line="{{ block.settings.show_savings_line }}"
     data-bd-show-price-row="{{ block.settings.show_price_row }}"
+    data-bd-free-shipping-accent="{{ block.settings.free_shipping_accent_color }}"
+    data-bd-free-shipping-text="{{ block.settings.free_shipping_text_color }}"
     {{ block.shopify_attributes }}
     style="
       --bd-accent: {{ block.settings.accent_color }};
@@ -176,6 +178,17 @@
       "id": "text_color",
       "label": "Price text",
       "default": "#111111"
+    },
+    {
+      "type": "color",
+      "id": "free_shipping_accent_color",
+      "label": "Free shipping badge background",
+      "info": "Leave empty to use the badge colors above. The Edge preset always uses black and white."
+    },
+    {
+      "type": "color",
+      "id": "free_shipping_text_color",
+      "label": "Free shipping badge text"
     },
     {
       "type": "header",

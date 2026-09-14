@@ -33,6 +33,8 @@
     savingsPrefix: {{ block.settings.savings_prefix | json }},
     accentColor: {{ block.settings.accent_color | json }},
     badgeTextColor: {{ block.settings.badge_text_color | json }},
+    freeShippingAccentColor: {{ block.settings.free_shipping_accent_color | json }},
+    freeShippingTextColor: {{ block.settings.free_shipping_text_color | json }},
     savingsColor: {{ block.settings.savings_color | json }},
     cardStyle: {{ block.settings.card_style | json }},
     badgePosition: {{ block.settings.badge_position | json }},
@@ -167,6 +169,17 @@
       "id": "savings_color",
       "label": "Savings text",
       "default": "#0b8457"
+    },
+    {
+      "type": "color",
+      "id": "free_shipping_accent_color",
+      "label": "Free shipping badge background",
+      "info": "Leave empty to use the badge colors above. The Edge preset always uses black and white."
+    },
+    {
+      "type": "color",
+      "id": "free_shipping_text_color",
+      "label": "Free shipping badge text"
     }
   ]
 }
