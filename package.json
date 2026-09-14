@@ -14,7 +14,7 @@
     "setup": "prisma migrate deploy",
     "postinstall": "prisma generate",
     "lint": "eslint --cache --cache-location ./node_modules/.cache/eslint .",
-    "test": "vitest run",
+    "test": "vitest run && npm test --workspace discounto-free-shipping",
     "shopify": "shopify",
     "prisma": "prisma",
     "graphql-codegen": "graphql-codegen",

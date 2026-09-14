@@ -12,7 +12,7 @@ module.exports = {
   },
   overrides: [
     {
-      files: ["**/*.test.ts"],
+      files: ["**/*.test.ts", "**/*.test.js"],
       settings: {
         jest: {
           version: 27,
