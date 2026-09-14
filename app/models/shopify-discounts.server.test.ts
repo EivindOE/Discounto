@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createFakeAdmin } from "../test/fake-admin";
 import {
+  automaticDiscountExistsInShopify,
   createAutomaticDiscountInShopify,
   createShippingDiscountInShopify,
   updateShippingDiscountInShopify,
@@ -9,6 +10,7 @@ import {
 const configuration = {
   productIds: ["gid://shopify/Product/1"],
   collectionIds: [],
+  message: "Free shipping",
 };
 
 const basicCreated = {
@@ -158,5 +160,43 @@ describe("updateShippingDiscountInShopify", () => {
         value: JSON.stringify(configuration),
       },
     ]);
+  });
+});
+
+describe("automaticDiscountExistsInShopify", () => {
+  it("returns true when Shopify still has the discount", async () => {
+    const { admin, calls } = createFakeAdmin([
+      { data: { automaticDiscountNode: { id: "gid://shopify/DiscountAutomaticNode/20" } } },
+    ]);
+
+    const exists = await automaticDiscountExistsInShopify({
+      admin,
+      shopifyDiscountId: "gid://shopify/DiscountAutomaticNode/20",
+    });
+
+    expect(exists).toBe(true);
+    expect(calls[0].variables?.id).toBe("gid://shopify/DiscountAutomaticNode/20");
+  });
+
+  it("returns false when the discount is gone", async () => {
+    const { admin } = createFakeAdmin([{ data: { automaticDiscountNode: null } }]);
+
+    const exists = await automaticDiscountExistsInShopify({
+      admin,
+      shopifyDiscountId: "gid://shopify/DiscountAutomaticNode/20",
+    });
+
+    expect(exists).toBe(false);
+  });
+
+  it("throws on a top-level GraphQL error", async () => {
+    const { admin } = createFakeAdmin([{ errors: [{ message: "Throttled" }] }]);
+
+    await expect(
+      automaticDiscountExistsInShopify({
+        admin,
+        shopifyDiscountId: "gid://shopify/DiscountAutomaticNode/20",
+      }),
+    ).rejects.toThrow("Throttled");
   });
 });

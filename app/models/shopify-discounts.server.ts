@@ -74,6 +74,14 @@ const UPDATE_AUTOMATIC_APP_DISCOUNT_MUTATION = `#graphql
   }
 `;
 
+const AUTOMATIC_DISCOUNT_EXISTS_QUERY = `#graphql
+  query DiscountoAutomaticDiscountExists($id: ID!) {
+    automaticDiscountNode(id: $id) {
+      id
+    }
+  }
+`;
+
 const SET_FUNCTION_CONFIGURATION_MUTATION = `#graphql
   mutation SetDiscountFunctionConfiguration($metafields: [MetafieldsSetInput!]!) {
     metafieldsSet(metafields: $metafields) {
@@ -384,6 +392,40 @@ export async function deleteAutomaticDiscountInShopify({
   });
 
   await parseDiscountMutationResponse(response, "discountAutomaticDelete");
+}
+
+/**
+ * Checks whether an automatic discount still exists in Shopify. Used to
+ * recover a campaign whose stored discount ID was deleted outside the app
+ * (in Shopify admin, or by an app uninstall).
+ */
+export async function automaticDiscountExistsInShopify({
+  admin,
+  shopifyDiscountId,
+}: {
+  admin: AdminGraphqlClient;
+  shopifyDiscountId: string;
+}): Promise<boolean> {
+  const response = await admin.graphql(AUTOMATIC_DISCOUNT_EXISTS_QUERY, {
+    variables: {
+      id: shopifyDiscountId,
+    },
+  });
+
+  const json = (await response.json()) as {
+    errors?: Array<{ message?: string | null }>;
+    data?: {
+      automaticDiscountNode?: { id?: string | null } | null;
+    };
+  };
+
+  const topLevelErrors = json.errors?.map((error) => error.message).filter(Boolean) ?? [];
+
+  if (topLevelErrors.length > 0) {
+    throw new Error(topLevelErrors.join(" "));
+  }
+
+  return json.data?.automaticDiscountNode != null;
 }
 
 type ShippingDiscountInput = {

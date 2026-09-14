@@ -6,6 +6,7 @@ import {
   type CampaignOfferType,
 } from "../lib/campaign-offer";
 import {
+  automaticDiscountExistsInShopify,
   createAutomaticDiscountInShopify,
   createShippingDiscountInShopify,
   deleteAutomaticDiscountInShopify,
@@ -47,6 +48,62 @@ function getErrorMessage(error: unknown) {
     : "An unexpected error stopped the Shopify discount sync.";
 }
 
+/**
+ * Runs an update against a discount that is expected to exist in Shopify. If
+ * the update fails, this checks whether the stored ID is stale (the merchant
+ * deleted the discount outside the app, or an app uninstall removed it) and,
+ * if so, creates a replacement instead of surfacing an unrecoverable error.
+ * A genuine failure (the discount still exists) rethrows unchanged.
+ */
+async function updateOrRecreate({
+  admin,
+  shopifyDiscountId,
+  update,
+  create,
+}: {
+  admin: AdminGraphqlClient;
+  shopifyDiscountId: string;
+  update: () => Promise<{ shopifyDiscountId: string }>;
+  create: () => Promise<{ shopifyDiscountId: string }>;
+}): Promise<{ shopifyDiscountId: string; created: boolean }> {
+  try {
+    const result = await update();
+    return { shopifyDiscountId: result.shopifyDiscountId, created: false };
+  } catch (error) {
+    const stillExists = await automaticDiscountExistsInShopify({ admin, shopifyDiscountId });
+
+    if (stillExists) {
+      throw error;
+    }
+
+    const result = await create();
+    return { shopifyDiscountId: result.shopifyDiscountId, created: true };
+  }
+}
+
+/**
+ * Deletes a discount, treating a failed delete as a success when the
+ * discount already does not exist in Shopify. A genuine failure (the
+ * discount still exists) rethrows unchanged.
+ */
+async function deleteOrTreatAsGone({
+  admin,
+  shopifyDiscountId,
+}: {
+  admin: AdminGraphqlClient;
+  shopifyDiscountId: string;
+}): Promise<void> {
+  try {
+    await deleteAutomaticDiscountInShopify({ admin, shopifyDiscountId });
+  } catch (error) {
+    const stillExists = await automaticDiscountExistsInShopify({ admin, shopifyDiscountId });
+
+    if (stillExists) {
+      throw error;
+    }
+  }
+}
+
 export async function syncCampaignDiscountsInShopify({
   admin,
   existingIds,
@@ -57,6 +114,7 @@ export async function syncCampaignDiscountsInShopify({
   selectedProducts,
   selectedCollections,
   discountProducts,
+  freeShippingBadgeText,
   startsAt,
   endsAt,
 }: {
@@ -69,6 +127,7 @@ export async function syncCampaignDiscountsInShopify({
   selectedProducts: Array<{ productGid: string }>;
   selectedCollections: Array<{ collectionGid: string }>;
   discountProducts: Array<{ productGid: string }>;
+  freeShippingBadgeText?: string | null;
   startsAt?: Date | null;
   endsAt?: Date | null;
 }): Promise<CampaignDiscountIds> {
@@ -96,11 +155,21 @@ export async function syncCampaignDiscountsInShopify({
       };
 
       if (ids.shopifyDiscountId) {
-        const result = await updateAutomaticDiscountInShopify({
-          ...discountInput,
-          shopifyDiscountId: ids.shopifyDiscountId,
+        const existingDiscountId = ids.shopifyDiscountId;
+        const outcome = await updateOrRecreate({
+          admin,
+          shopifyDiscountId: existingDiscountId,
+          update: () =>
+            updateAutomaticDiscountInShopify({
+              ...discountInput,
+              shopifyDiscountId: existingDiscountId,
+            }),
+          create: () => createAutomaticDiscountInShopify(discountInput),
         });
-        ids.shopifyDiscountId = result.shopifyDiscountId;
+        ids.shopifyDiscountId = outcome.shopifyDiscountId;
+        if (outcome.created) {
+          created.push("shopifyDiscountId");
+        }
       } else {
         const result = await createAutomaticDiscountInShopify(discountInput);
         ids.shopifyDiscountId = result.shopifyDiscountId;
@@ -112,17 +181,31 @@ export async function syncCampaignDiscountsInShopify({
       const shippingInput = {
         admin,
         title,
-        configuration: buildShippingFunctionConfiguration({ selectedProducts, selectedCollections }),
+        configuration: buildShippingFunctionConfiguration({
+          selectedProducts,
+          selectedCollections,
+          freeShippingBadgeText,
+        }),
         startsAt,
         endsAt,
       };
 
       if (ids.shopifyShippingDiscountId) {
-        const result = await updateShippingDiscountInShopify({
-          ...shippingInput,
-          shopifyDiscountId: ids.shopifyShippingDiscountId,
+        const existingShippingDiscountId = ids.shopifyShippingDiscountId;
+        const outcome = await updateOrRecreate({
+          admin,
+          shopifyDiscountId: existingShippingDiscountId,
+          update: () =>
+            updateShippingDiscountInShopify({
+              ...shippingInput,
+              shopifyDiscountId: existingShippingDiscountId,
+            }),
+          create: () => createShippingDiscountInShopify(shippingInput),
         });
-        ids.shopifyShippingDiscountId = result.shopifyDiscountId;
+        ids.shopifyShippingDiscountId = outcome.shopifyDiscountId;
+        if (outcome.created) {
+          created.push("shopifyShippingDiscountId");
+        }
       } else {
         const result = await createShippingDiscountInShopify(shippingInput);
         ids.shopifyShippingDiscountId = result.shopifyDiscountId;
@@ -133,12 +216,12 @@ export async function syncCampaignDiscountsInShopify({
     // Deletes run last so a failed create or update never strips the campaign
     // of the discount it had before this sync.
     if (!includesDiscount && ids.shopifyDiscountId) {
-      await deleteAutomaticDiscountInShopify({ admin, shopifyDiscountId: ids.shopifyDiscountId });
+      await deleteOrTreatAsGone({ admin, shopifyDiscountId: ids.shopifyDiscountId });
       ids.shopifyDiscountId = null;
     }
 
     if (!includesFreeShipping && ids.shopifyShippingDiscountId) {
-      await deleteAutomaticDiscountInShopify({
+      await deleteOrTreatAsGone({
         admin,
         shopifyDiscountId: ids.shopifyShippingDiscountId,
       });
@@ -186,7 +269,7 @@ export async function deleteCampaignDiscountsInShopify({
         continue;
       }
 
-      await deleteAutomaticDiscountInShopify({ admin, shopifyDiscountId });
+      await deleteOrTreatAsGone({ admin, shopifyDiscountId });
       remaining[key] = null;
     }
   } catch (error) {
