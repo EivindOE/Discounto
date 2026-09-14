@@ -166,6 +166,11 @@ describe("syncCampaignDiscountsInShopify", () => {
 
     expect(ids).toEqual({ shopifyDiscountId: BASIC, shopifyShippingDiscountId: SHIPPING });
     expect(basicInput(calls[0]).combinesWith.shippingDiscounts).toBe(true);
+
+    // Shopify rejects two automatic discounts with the same title.
+    const basicTitle = (calls[0].variables?.automaticBasicDiscount as { title: string }).title;
+    const shippingTitle = (calls[1].variables?.automaticAppDiscount as { title: string }).title;
+    expect(shippingTitle).not.toBe(basicTitle);
   });
 
   it("updates the product discount before deleting a shipping discount that is no longer wanted", async () => {

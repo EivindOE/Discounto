@@ -435,13 +435,17 @@ type ShippingDiscountInput = {
   endsAt?: Date | null;
 };
 
+// Shopify requires automatic discount titles to be unique, and a campaign with
+// both offers already uses its own title for the product discount.
+const SHIPPING_DISCOUNT_TITLE_SUFFIX = " – Free shipping";
+
 function buildShippingDiscountSchedule({
   title,
   startsAt,
   endsAt,
 }: Pick<ShippingDiscountInput, "title" | "startsAt" | "endsAt">) {
   return {
-    title,
+    title: `${title}${SHIPPING_DISCOUNT_TITLE_SUFFIX}`,
     startsAt: (startsAt ?? new Date()).toISOString(),
     ...(endsAt ? { endsAt: endsAt.toISOString() } : {}),
   };
