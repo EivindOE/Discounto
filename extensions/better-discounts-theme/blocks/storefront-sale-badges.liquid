@@ -36,6 +36,7 @@
     savingsColor: {{ block.settings.savings_color | json }},
     cardStyle: {{ block.settings.card_style | json }},
     badgePosition: {{ block.settings.badge_position | json }},
+    freeShippingBadgePosition: {{ block.settings.free_shipping_badge_position | json }},
     showImageBadge: {{ block.settings.show_image_badge | json }},
     showInlineBadge: {{ block.settings.show_inline_badge | json }},
     showSavingsLine: {{ block.settings.show_savings_line | json }},
@@ -131,6 +132,19 @@
         { "value": "bottom-left", "label": "Bottom left" },
         { "value": "bottom-right", "label": "Bottom right" }
       ]
+    },
+    {
+      "type": "select",
+      "id": "free_shipping_badge_position",
+      "label": "Free shipping badge position",
+      "default": "bottom-right",
+      "options": [
+        { "value": "top-left", "label": "Top left" },
+        { "value": "top-right", "label": "Top right" },
+        { "value": "bottom-left", "label": "Bottom left" },
+        { "value": "bottom-right", "label": "Bottom right" }
+      ],
+      "info": "Used when a campaign shows free shipping as its own badge."
     },
     {
       "type": "header",

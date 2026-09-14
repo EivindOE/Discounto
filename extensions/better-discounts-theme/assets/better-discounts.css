@@ -103,6 +103,8 @@
   position: absolute;
   z-index: 9;
   display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
   pointer-events: none;
   max-width: calc(100% - 1.5rem);
 }
@@ -120,11 +122,13 @@
 .bd-chip-wrap--top-left,
 .bd-chip-wrap--bottom-left {
   left: var(--bd-chip-offset-x);
+  align-items: flex-start;
 }
 
 .bd-chip-wrap--top-right,
 .bd-chip-wrap--bottom-right {
   right: var(--bd-chip-offset-x);
+  align-items: flex-end;
 }
 
 .bd-chip {

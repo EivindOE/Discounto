@@ -19,6 +19,7 @@
   const NATIVE_BADGE_SELECTOR = ".product-badges";
   const PRODUCT_BLOCK_SELECTOR = ".bd-badge--product[data-bd-product-handle]";
   const BADGE_POSITIONS = ["top-left", "top-right", "bottom-left", "bottom-right"];
+  const DEFAULT_FREE_SHIPPING_BADGE_TEXT = "Free shipping";
 
   function log(config, message, payload) {
     if (!config?.debug) return;
@@ -118,16 +119,96 @@
     return BADGE_POSITIONS.includes(position) ? position : "top-left";
   }
 
-  function createImageChip(label, config) {
+  // Campaigns cached before offers existed carry no offerType and are discounts.
+  function campaignHasDiscount(campaign) {
+    return campaign?.offerType !== "FREE_SHIPPING";
+  }
+
+  function campaignHasFreeShipping(campaign) {
+    return (
+      campaign?.offerType === "FREE_SHIPPING" ||
+      campaign?.offerType === "DISCOUNT_AND_FREE_SHIPPING"
+    );
+  }
+
+  function resolveFreeShippingLabel(campaign) {
+    return (
+      String(campaign?.freeShippingBadgeText || "").trim() || DEFAULT_FREE_SHIPPING_BADGE_TEXT
+    );
+  }
+
+  function resolveFreeShippingBadgePosition(config) {
+    const position = String(config?.freeShippingBadgePosition || "").trim();
+    return BADGE_POSITIONS.includes(position) ? position : "bottom-right";
+  }
+
+  function resolveCampaignBadges(campaign, discountLabel) {
+    if (!campaignHasFreeShipping(campaign)) {
+      return [{ label: discountLabel, freeShipping: false }];
+    }
+
+    const shippingLabel = resolveFreeShippingLabel(campaign);
+
+    if (!campaignHasDiscount(campaign)) {
+      return [{ label: shippingLabel, freeShipping: true }];
+    }
+
+    if (campaign.badgeLayout === "COMBINED") {
+      return [{ label: `${discountLabel} · ${shippingLabel}`, freeShipping: false }];
+    }
+
+    if (campaign.badgeLayout === "DISCOUNT_ONLY") {
+      return [{ label: discountLabel, freeShipping: false }];
+    }
+
+    return [
+      { label: discountLabel, freeShipping: false },
+      { label: shippingLabel, freeShipping: true },
+    ];
+  }
+
+  // Badges that share a corner go into one wrap so they stack instead of overlapping.
+  function appendImageBadges(imageTarget, badges, config) {
+    const labelsByPosition = new Map();
+
+    badges.forEach((badge) => {
+      const position = badge.freeShipping
+        ? resolveFreeShippingBadgePosition(config)
+        : resolveBadgePosition(config);
+
+      if (!labelsByPosition.has(position)) {
+        labelsByPosition.set(position, []);
+      }
+
+      labelsByPosition.get(position).push(badge.label);
+    });
+
+    labelsByPosition.forEach((labels, position) => {
+      imageTarget.appendChild(createImageChip(labels, position, config));
+    });
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function createImageChip(labels, position, config) {
     const wrap = document.createElement("div");
-    wrap.className = `bd-chip-wrap bd-chip-wrap--${resolveBadgePosition(config)}`;
+    wrap.className = `bd-chip-wrap bd-chip-wrap--${position}`;
     applyCustomProperties(wrap, config);
 
-    const chip = document.createElement("span");
-    chip.className = `bd-chip bd-chip--image bd-style-${config.cardStyle}`;
-    chip.textContent = label;
-    applyCustomProperties(chip, config);
-    wrap.appendChild(chip);
+    labels.forEach((label) => {
+      const chip = document.createElement("span");
+      chip.className = `bd-chip bd-chip--image bd-style-${config.cardStyle}`;
+      chip.textContent = label;
+      applyCustomProperties(chip, config);
+      wrap.appendChild(chip);
+    });
 
     return wrap;
   }
@@ -527,6 +608,20 @@
     const nativeBadge = card.querySelector(NATIVE_BADGE_SELECTOR);
     const campaign = findCampaignForCard(card, campaignLookup);
 
+    if (campaign && !campaignHasDiscount(campaign)) {
+      if (priceHost) {
+        restorePriceHost(priceHost);
+      }
+
+      if (imageTarget && config.showImageBadge && !imageTarget.querySelector(".bd-chip-wrap")) {
+        imageTarget.classList.add("bd-sale-target");
+        appendImageBadges(imageTarget, resolveCampaignBadges(campaign, ""), config);
+      }
+
+      card.dataset.bdProcessed = "true";
+      return;
+    }
+
     if (campaign && imageTarget && priceHost) {
       const basePrice =
         Number(priceHost.dataset.bdOriginalBasePrice) ||
@@ -565,7 +660,7 @@
 
         if (config.showImageBadge && !imageTarget.querySelector(".bd-chip-wrap")) {
           imageTarget.classList.add("bd-sale-target");
-          imageTarget.appendChild(createImageChip(label, config));
+          appendImageBadges(imageTarget, resolveCampaignBadges(campaign, label), config);
           hideNativeBadge(nativeBadge);
         }
 
@@ -609,7 +704,9 @@
 
     if (config.showImageBadge && !fallbackData.imageTarget.querySelector(".bd-chip-wrap")) {
       fallbackData.imageTarget.classList.add("bd-sale-target");
-      fallbackData.imageTarget.appendChild(createImageChip(label, config));
+      fallbackData.imageTarget.appendChild(
+        createImageChip([label], resolveBadgePosition(config), config),
+      );
       hideNativeBadge(fallbackData.nativeBadge);
     }
 
@@ -640,6 +737,23 @@
 
       if (!campaign) {
         livePriceHosts.forEach((host) => restorePriceHost(host));
+        return;
+      }
+
+      if (!campaignHasDiscount(campaign)) {
+        livePriceHosts.forEach((host) => restorePriceHost(host));
+        // Keep the block's compare-at content and only add the free shipping pill.
+        block.querySelector(".bd-badge__pill--free-shipping")?.remove();
+
+        if (block.getAttribute("data-bd-show-badge") === "true") {
+          block.insertAdjacentHTML(
+            "afterbegin",
+            `<span class="bd-badge__pill bd-badge__pill--free-shipping">${escapeHtml(
+              resolveFreeShippingLabel(campaign),
+            )}</span>`,
+          );
+        }
+
         return;
       }
 
@@ -711,7 +825,12 @@
       const fragments = [];
 
       if (showBadge) {
-        fragments.push(`<span class="bd-badge__pill">${label}</span>`);
+        resolveCampaignBadges(campaign, label).forEach((badge) => {
+          const modifier = badge.freeShipping ? " bd-badge__pill--free-shipping" : "";
+          fragments.push(
+            `<span class="bd-badge__pill${modifier}">${escapeHtml(badge.label)}</span>`,
+          );
+        });
       }
 
       if (showSavingsLine) {
