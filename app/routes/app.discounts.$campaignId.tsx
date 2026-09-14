@@ -23,12 +23,12 @@ import {
   resolveCampaignTargetProducts,
 } from "../models/campaign-targets.server";
 import {
-  createAutomaticDiscountInShopify,
-  updateAutomaticDiscountInShopify,
-} from "../models/shopify-discounts.server";
+  CampaignSyncError,
+  syncCampaignDiscountsInShopify,
+} from "../models/campaign-discount-sync.server";
 import { authenticate } from "../shopify.server";
 import {
-  normalizeDiscountKind,
+  parseCampaignOfferFields,
   parseOptionalIsoDate,
   parseSelectedCollections,
   parseSelectedProducts,
@@ -102,8 +102,8 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     campaign: {
       id: campaign.id,
       title: campaign.title,
-      discountKind: campaign.discountKind,
-      discountValue: String(campaign.discountValue),
+      discountKind: campaign.discountKind ?? undefined,
+      discountValue: campaign.discountValue == null ? undefined : String(campaign.discountValue),
       badgeText: campaign.badgeText ?? "",
       selectedCollections: campaign.collections.map((collection) => ({
         collectionGid: collection.collectionGid,
@@ -144,8 +144,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 
   const formData = await request.formData();
   const title = String(formData.get("title") ?? "").trim();
-  const discountKind = normalizeDiscountKind(formData.get("discountKind"));
-  const discountValue = Number(formData.get("discountValue") ?? 0);
+  const offer = parseCampaignOfferFields(formData);
   const badgeText = String(formData.get("badgeText") ?? "").trim();
   const selectedProducts = parseSelectedProducts(formData.get("selectedProducts"));
   const selectedCollections = parseSelectedCollections(formData.get("selectedCollections"));
@@ -158,8 +157,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return { error: "Add a campaign name before saving." } satisfies ActionData;
   }
 
-  if (!Number.isFinite(discountValue) || discountValue <= 0) {
-    return { error: "Enter a discount value greater than 0." } satisfies ActionData;
+  if (!offer.ok) {
+    return { error: offer.error } satisfies ActionData;
   }
 
   if (selectedProducts.length === 0 && selectedCollections.length === 0) {
@@ -219,8 +218,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     campaignId,
     shop: session.shop,
     title,
-    discountKind,
-    discountValue,
+    ...offer.fields,
     currencyCode,
     badgeText: badgeText || null,
     selectedProducts,
@@ -236,32 +234,26 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     cache: collectionCache,
   });
   try {
-    const syncResult = existingCampaign.shopifyDiscountId
-      ? await updateAutomaticDiscountInShopify({
-          admin,
-          shopifyDiscountId: existingCampaign.shopifyDiscountId,
-          title,
-          discountKind,
-          discountValue,
-          selectedProducts: resolvedProducts,
-          selectedCollections,
-          startsAt,
-          endsAt,
-        })
-      : await createAutomaticDiscountInShopify({
-          admin,
-          title,
-          discountKind,
-          discountValue,
-          selectedProducts: resolvedProducts,
-          selectedCollections,
-          startsAt,
-          endsAt,
-        });
+    const ids = await syncCampaignDiscountsInShopify({
+      admin,
+      existingIds: {
+        shopifyDiscountId: existingCampaign.shopifyDiscountId,
+        shopifyShippingDiscountId: existingCampaign.shopifyShippingDiscountId,
+      },
+      title,
+      offerType: campaign.offerType,
+      discountKind: campaign.discountKind,
+      discountValue: campaign.discountValue,
+      selectedProducts,
+      selectedCollections,
+      discountProducts: resolvedProducts,
+      startsAt,
+      endsAt,
+    });
 
     await markCampaignSyncSuccess({
       campaignId: campaign.id,
-      shopifyDiscountId: syncResult.shopifyDiscountId,
+      ids,
     });
 
     return redirect("/app/discounts");
@@ -274,6 +266,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     await markCampaignSyncFailure({
       campaignId: campaign.id,
       errorMessage: message,
+      ids: error instanceof CampaignSyncError ? error.ids : undefined,
     });
 
     return {

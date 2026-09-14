@@ -35,9 +35,14 @@ import {
   resolveCampaignTargetProducts,
 } from "../models/campaign-targets.server";
 import {
-  createAutomaticDiscountInShopify,
-  deleteAutomaticDiscountInShopify,
-} from "../models/shopify-discounts.server";
+  CampaignSyncError,
+  deleteCampaignDiscountsInShopify,
+  syncCampaignDiscountsInShopify,
+} from "../models/campaign-discount-sync.server";
+import {
+  DEFAULT_FREE_SHIPPING_BADGE_TEXT,
+  formatCampaignOfferLabel,
+} from "../lib/campaign-offer";
 import { authenticate } from "../shopify.server";
 
 function formatSchedule(startsAt: string | null, endsAt: string | null) {
@@ -82,12 +87,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       title: campaign.title,
       status: campaign.status,
       syncStatus: campaign.syncStatus,
-      kind: campaign.discountKind,
-      value: campaign.discountValue,
-      currencyCode: campaign.currencyCode,
+      offerLabel: formatCampaignOfferLabel({
+        offerType: campaign.offerType,
+        discountKind: campaign.discountKind,
+        discountValue: campaign.discountValue,
+        currencyCode: campaign.currencyCode,
+      }),
       productCount: coverageMap.get(campaign.id)?.length ?? 0,
       collectionCount: campaign.collections.length,
-      badgeText: campaign.badgeText,
+      badgeText:
+        campaign.offerType === "FREE_SHIPPING"
+          ? campaign.freeShippingBadgeText ?? DEFAULT_FREE_SHIPPING_BADGE_TEXT
+          : campaign.badgeText,
       lastSyncError: campaign.lastSyncError,
       startsAt: campaign.startsAt?.toISOString() ?? null,
       endsAt: campaign.endsAt?.toISOString() ?? null,
@@ -115,16 +126,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     admin,
   });
   const campaigns = await listCampaignsForShop(session.shop);
+  const existingIds = {
+    shopifyDiscountId: campaign.shopifyDiscountId,
+    shopifyShippingDiscountId: campaign.shopifyShippingDiscountId,
+  };
 
   try {
     if (intent === "deactivate") {
-      if (campaign.shopifyDiscountId) {
-        await deleteAutomaticDiscountInShopify({
-          admin,
-          shopifyDiscountId: campaign.shopifyDiscountId,
-        });
-      }
-
+      await deleteCampaignDiscountsInShopify({ admin, ids: existingIds });
       await markCampaignArchived({ campaignId });
       return redirect("/app/discounts");
     }
@@ -166,32 +175,29 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           ? campaign.products
           : resolvedProducts;
 
-      const { shopifyDiscountId } = await createAutomaticDiscountInShopify({
+      const ids = await syncCampaignDiscountsInShopify({
         admin,
+        existingIds,
         title: campaign.title,
+        offerType: campaign.offerType,
         discountKind: campaign.discountKind,
         discountValue: campaign.discountValue,
-        selectedProducts: shopifyDiscountProducts,
+        selectedProducts: campaign.products,
         selectedCollections: campaign.collections,
+        discountProducts: shopifyDiscountProducts,
         startsAt: campaign.startsAt,
         endsAt: campaign.endsAt,
       });
 
       await markCampaignActive({
         campaignId,
-        shopifyDiscountId,
+        ids,
       });
       return redirect("/app/discounts");
     }
 
     if (intent === "delete") {
-      if (campaign.shopifyDiscountId) {
-        await deleteAutomaticDiscountInShopify({
-          admin,
-          shopifyDiscountId: campaign.shopifyDiscountId,
-        });
-      }
-
+      await deleteCampaignDiscountsInShopify({ admin, ids: existingIds });
       await deleteCampaignById({
         campaignId,
         shop: session.shop,
@@ -207,6 +213,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     await markCampaignSyncFailure({
       campaignId,
       errorMessage: message,
+      ids: error instanceof CampaignSyncError ? error.ids : undefined,
     });
 
     return { error: message };
@@ -266,7 +273,7 @@ export default function DiscountsPage() {
                 "Sync",
                 "Products",
                 "Collections",
-                "Discount",
+                "Offer",
                 "Badge text",
                 "Schedule",
                 "Actions",
@@ -279,9 +286,7 @@ export default function DiscountsPage() {
                   ? "-"
                   : campaign.productCount.toString(),
                 campaign.collectionCount.toString(),
-                campaign.kind === "PERCENTAGE"
-                  ? `${String(campaign.value)}%`
-                  : `${String(campaign.value)} ${campaign.currencyCode}`,
+                campaign.offerLabel,
                 campaign.badgeText ?? "-",
                 formatSchedule(campaign.startsAt, campaign.endsAt),
                 <InlineStack key={`${campaign.id}-actions`} gap="200" wrap={false}>

@@ -56,6 +56,18 @@ enum CampaignSyncStatus {
   SYNC_FAILED
 }
 
+enum CampaignOffer {
+  DISCOUNT
+  FREE_SHIPPING
+  DISCOUNT_AND_FREE_SHIPPING
+}
+
+enum CampaignBadgeLayout {
+  SEPARATE
+  COMBINED
+  DISCOUNT_ONLY
+}
+
 model ShopSettings {
   id                String             @id @default(cuid())
   shop              String             @unique
@@ -69,24 +81,28 @@ model ShopSettings {
 }
 
 model DiscountCampaign {
-  id                String             @id @default(cuid())
-  shop              String
-  title             String
-  status            DiscountStatus     @default(DRAFT)
-  syncStatus        CampaignSyncStatus @default(DRAFT)
-  discountKind      DiscountKind
-  discountValue     Float
-  currencyCode      String             @default("USD")
-  badgeText         String?
-  shopifyDiscountId String?
-  lastSyncError     String?
-  startsAt          DateTime?
-  endsAt            DateTime?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  shopSettings      ShopSettings       @relation(fields: [shop], references: [shop], onDelete: Cascade)
-  products          DiscountProduct[]
-  collections       DiscountCollection[]
+  id                        String               @id @default(cuid())
+  shop                      String
+  title                     String
+  status                    DiscountStatus       @default(DRAFT)
+  syncStatus                CampaignSyncStatus   @default(DRAFT)
+  offerType                 CampaignOffer        @default(DISCOUNT)
+  discountKind              DiscountKind?
+  discountValue             Float?
+  currencyCode              String               @default("USD")
+  badgeText                 String?
+  shopifyDiscountId         String?
+  shopifyShippingDiscountId String?
+  freeShippingBadgeText     String?
+  badgeLayout               CampaignBadgeLayout  @default(SEPARATE)
+  lastSyncError             String?
+  startsAt                  DateTime?
+  endsAt                    DateTime?
+  createdAt                 DateTime             @default(now())
+  updatedAt                 DateTime             @updatedAt
+  shopSettings              ShopSettings         @relation(fields: [shop], references: [shop], onDelete: Cascade)
+  products                  DiscountProduct[]
+  collections               DiscountCollection[]
 
   @@index([shop, status])
 }
