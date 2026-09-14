@@ -538,7 +538,7 @@ export function CampaignEditor({
                 ]}
                 helpText={
                   includesFreeShipping
-                    ? "Free shipping applies to the whole order when the cart contains a product from this campaign."
+                    ? "Free shipping applies to the whole order when the cart contains a product from this campaign. It will not combine with a discount-only campaign's products in the same cart — use \"Discount + free shipping\" to give both."
                     : undefined
                 }
               />
@@ -586,7 +586,12 @@ export function CampaignEditor({
                     helpText="This text is used by Discounto for storefront badges."
                   />
                 </>
-              ) : null}
+              ) : (
+                // Preserved so switching to Free shipping and back does not lose
+                // the merchant's badge text (parseCampaignOfferFields only reads
+                // this field, so it never persists for a FREE_SHIPPING offer).
+                <input type="hidden" name="badgeText" value={badgeText} />
+              )}
 
               {includesFreeShipping ? (
                 <TextField
