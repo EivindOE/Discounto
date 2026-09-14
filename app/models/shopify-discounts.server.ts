@@ -1,4 +1,5 @@
 import type { DiscountKind } from "@prisma/client";
+import type { ShippingFunctionConfiguration } from "../lib/campaign-offer";
 
 const CREATE_AUTOMATIC_BASIC_DISCOUNT_MUTATION = `#graphql
   mutation CreateAutomaticBasicDiscount($automaticBasicDiscount: DiscountAutomaticBasicInput!) {
@@ -43,6 +44,62 @@ const DELETE_AUTOMATIC_DISCOUNT_MUTATION = `#graphql
   }
 `;
 
+const CREATE_AUTOMATIC_APP_DISCOUNT_MUTATION = `#graphql
+  mutation CreateAutomaticAppDiscount($automaticAppDiscount: DiscountAutomaticAppInput!) {
+    discountAutomaticAppCreate(automaticAppDiscount: $automaticAppDiscount) {
+      automaticAppDiscount {
+        discountId
+      }
+      userErrors {
+        field
+        code
+        message
+      }
+    }
+  }
+`;
+
+const UPDATE_AUTOMATIC_APP_DISCOUNT_MUTATION = `#graphql
+  mutation UpdateAutomaticAppDiscount($id: ID!, $automaticAppDiscount: DiscountAutomaticAppInput!) {
+    discountAutomaticAppUpdate(id: $id, automaticAppDiscount: $automaticAppDiscount) {
+      automaticAppDiscount {
+        discountId
+      }
+      userErrors {
+        field
+        code
+        message
+      }
+    }
+  }
+`;
+
+const SET_FUNCTION_CONFIGURATION_MUTATION = `#graphql
+  mutation SetDiscountFunctionConfiguration($metafields: [MetafieldsSetInput!]!) {
+    metafieldsSet(metafields: $metafields) {
+      metafields {
+        id
+      }
+      userErrors {
+        field
+        code
+        message
+      }
+    }
+  }
+`;
+
+export const FREE_SHIPPING_FUNCTION_HANDLE = "discounto-free-shipping";
+const FUNCTION_CONFIGURATION_NAMESPACE = "$app";
+const FUNCTION_CONFIGURATION_KEY = "function-configuration";
+
+// The shipping discount must stack with the campaign's own product discount.
+const SHIPPING_DISCOUNT_COMBINES_WITH = {
+  orderDiscounts: false,
+  productDiscounts: true,
+  shippingDiscounts: false,
+};
+
 type SelectedProduct = {
   productGid: string;
 };
@@ -68,6 +125,7 @@ type DiscountInput = {
   selectedCollections?: SelectedCollection[];
   startsAt?: Date | null;
   endsAt?: Date | null;
+  combinesWithShippingDiscounts?: boolean;
 };
 
 function buildDiscountValue({
@@ -138,6 +196,7 @@ function buildCreateAutomaticBasicDiscountInput({
   selectedCollections,
   startsAt,
   endsAt,
+  combinesWithShippingDiscounts,
 }: DiscountInput) {
   return {
     title,
@@ -150,7 +209,7 @@ function buildCreateAutomaticBasicDiscountInput({
     combinesWith: {
       orderDiscounts: false,
       productDiscounts: false,
-      shippingDiscounts: false,
+      shippingDiscounts: combinesWithShippingDiscounts ?? false,
     },
   };
 }
@@ -163,6 +222,7 @@ function buildUpdateAutomaticBasicDiscountInput({
   selectedCollections,
   startsAt,
   endsAt,
+  combinesWithShippingDiscounts,
 }: DiscountInput) {
   return {
     title,
@@ -175,7 +235,7 @@ function buildUpdateAutomaticBasicDiscountInput({
     combinesWith: {
       orderDiscounts: false,
       productDiscounts: false,
-      shippingDiscounts: false,
+      shippingDiscounts: combinesWithShippingDiscounts ?? false,
     },
   };
 }
@@ -185,7 +245,10 @@ async function parseDiscountMutationResponse(
   payloadKey:
     | "discountAutomaticBasicCreate"
     | "discountAutomaticBasicUpdate"
-    | "discountAutomaticDelete",
+    | "discountAutomaticDelete"
+    | "discountAutomaticAppCreate"
+    | "discountAutomaticAppUpdate"
+    | "metafieldsSet",
 ) {
   const json = (await response.json()) as {
     errors?: Array<{ message?: string | null }>;
@@ -193,8 +256,10 @@ async function parseDiscountMutationResponse(
       string,
       | {
           automaticDiscountNode?: { id?: string | null } | null;
+          automaticAppDiscount?: { discountId?: string | null } | null;
           deletedAutomaticDiscountId?: string | null;
           userErrors?: Array<{ message?: string | null }>;
+          metafields?: Array<{ id?: string | null }>;
         }
       | undefined
     >;
@@ -225,6 +290,7 @@ export async function createAutomaticDiscountInShopify({
   selectedCollections,
   startsAt,
   endsAt,
+  combinesWithShippingDiscounts,
 }: DiscountInput & {
   admin: AdminGraphqlClient;
 }) {
@@ -238,6 +304,7 @@ export async function createAutomaticDiscountInShopify({
         selectedCollections,
         startsAt,
         endsAt,
+        combinesWithShippingDiscounts,
       }),
     },
   });
@@ -267,6 +334,7 @@ export async function updateAutomaticDiscountInShopify({
   selectedCollections,
   startsAt,
   endsAt,
+  combinesWithShippingDiscounts,
 }: DiscountInput & {
   admin: AdminGraphqlClient;
   shopifyDiscountId: string;
@@ -282,6 +350,7 @@ export async function updateAutomaticDiscountInShopify({
         selectedCollections,
         startsAt,
         endsAt,
+        combinesWithShippingDiscounts,
       }),
     },
   });
@@ -315,4 +384,117 @@ export async function deleteAutomaticDiscountInShopify({
   });
 
   await parseDiscountMutationResponse(response, "discountAutomaticDelete");
+}
+
+type ShippingDiscountInput = {
+  title: string;
+  configuration: ShippingFunctionConfiguration;
+  startsAt?: Date | null;
+  endsAt?: Date | null;
+};
+
+function buildShippingDiscountSchedule({
+  title,
+  startsAt,
+  endsAt,
+}: Pick<ShippingDiscountInput, "title" | "startsAt" | "endsAt">) {
+  return {
+    title,
+    startsAt: (startsAt ?? new Date()).toISOString(),
+    ...(endsAt ? { endsAt: endsAt.toISOString() } : {}),
+  };
+}
+
+export async function createShippingDiscountInShopify({
+  admin,
+  title,
+  configuration,
+  startsAt,
+  endsAt,
+}: ShippingDiscountInput & {
+  admin: AdminGraphqlClient;
+}) {
+  const response = await admin.graphql(CREATE_AUTOMATIC_APP_DISCOUNT_MUTATION, {
+    variables: {
+      automaticAppDiscount: {
+        ...buildShippingDiscountSchedule({ title, startsAt, endsAt }),
+        functionHandle: FREE_SHIPPING_FUNCTION_HANDLE,
+        discountClasses: ["SHIPPING"],
+        combinesWith: SHIPPING_DISCOUNT_COMBINES_WITH,
+        metafields: [
+          {
+            namespace: FUNCTION_CONFIGURATION_NAMESPACE,
+            key: FUNCTION_CONFIGURATION_KEY,
+            type: "json",
+            value: JSON.stringify(configuration),
+          },
+        ],
+      },
+    },
+  });
+
+  const payload = await parseDiscountMutationResponse(response, "discountAutomaticAppCreate");
+  const shopifyDiscountId = payload?.automaticAppDiscount?.discountId;
+
+  if (!shopifyDiscountId) {
+    throw new Error("Shopify did not return a discount ID for the new free shipping discount.");
+  }
+
+  return {
+    shopifyDiscountId,
+  };
+}
+
+export async function updateShippingDiscountInShopify({
+  admin,
+  shopifyDiscountId,
+  title,
+  configuration,
+  startsAt,
+  endsAt,
+}: ShippingDiscountInput & {
+  admin: AdminGraphqlClient;
+  shopifyDiscountId: string;
+}) {
+  const response = await admin.graphql(UPDATE_AUTOMATIC_APP_DISCOUNT_MUTATION, {
+    variables: {
+      id: shopifyDiscountId,
+      automaticAppDiscount: {
+        ...buildShippingDiscountSchedule({ title, startsAt, endsAt }),
+        discountClasses: ["SHIPPING"],
+        combinesWith: SHIPPING_DISCOUNT_COMBINES_WITH,
+      },
+    },
+  });
+
+  const payload = await parseDiscountMutationResponse(response, "discountAutomaticAppUpdate");
+  const updatedDiscountId = payload?.automaticAppDiscount?.discountId;
+
+  if (!updatedDiscountId) {
+    throw new Error(
+      "Shopify did not return a discount ID after updating the free shipping discount.",
+    );
+  }
+
+  // discountAutomaticAppUpdate does not document overwriting metafields, so the
+  // configuration is written with metafieldsSet, which upserts by namespace and key.
+  const metafieldResponse = await admin.graphql(SET_FUNCTION_CONFIGURATION_MUTATION, {
+    variables: {
+      metafields: [
+        {
+          ownerId: updatedDiscountId,
+          namespace: FUNCTION_CONFIGURATION_NAMESPACE,
+          key: FUNCTION_CONFIGURATION_KEY,
+          type: "json",
+          value: JSON.stringify(configuration),
+        },
+      ],
+    },
+  });
+
+  await parseDiscountMutationResponse(metafieldResponse, "metafieldsSet");
+
+  return {
+    shopifyDiscountId: updatedDiscountId,
+  };
 }
