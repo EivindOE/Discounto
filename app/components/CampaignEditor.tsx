@@ -22,6 +22,13 @@ import type {
   SelectedProductInput,
 } from "../models/discount.server";
 import type { PlanDefinition, PlanTier } from "../lib/plans";
+import {
+  DEFAULT_FREE_SHIPPING_BADGE_TEXT,
+  offerIncludesDiscount,
+  offerIncludesFreeShipping,
+  type CampaignBadgeLayoutType,
+  type CampaignOfferType,
+} from "../lib/campaign-offer";
 
 type PickerProduct = {
   id?: string;
@@ -52,6 +59,9 @@ type CampaignEditorProps = {
   initialValues?: {
     id?: string;
     title?: string;
+    offerType?: CampaignOfferType;
+    freeShippingBadgeText?: string;
+    badgeLayout?: CampaignBadgeLayoutType;
     discountKind?: "PERCENTAGE" | "FIXED_AMOUNT";
     discountValue?: string;
     badgeText?: string;
@@ -189,6 +199,17 @@ export function CampaignEditor({
         );
 
   const [title, setTitle] = useState(initialValues?.title ?? "");
+  const [offerType, setOfferType] = useState<CampaignOfferType>(
+    initialValues?.offerType ?? "DISCOUNT",
+  );
+  const [freeShippingBadgeText, setFreeShippingBadgeText] = useState(
+    initialValues?.freeShippingBadgeText || DEFAULT_FREE_SHIPPING_BADGE_TEXT,
+  );
+  const [badgeLayout, setBadgeLayout] = useState<CampaignBadgeLayoutType>(
+    initialValues?.badgeLayout ?? "SEPARATE",
+  );
+  const includesDiscount = offerIncludesDiscount(offerType);
+  const includesFreeShipping = offerIncludesFreeShipping(offerType);
   const [discountKind, setDiscountKind] = useState(
     initialValues?.discountKind ?? "PERCENTAGE",
   );
@@ -499,46 +520,103 @@ export function CampaignEditor({
                 helpText="This title is used for the Shopify automatic discount and inside Discounto."
               />
 
-              <InlineStack gap="300" align="start">
-                <div style={{ minWidth: 240 }}>
-                  <Select
-                    label="Discount type"
-                    name="discountKind"
-                    value={discountKind}
-                    onChange={(value) =>
-                      setDiscountKind(
-                        value === "FIXED_AMOUNT" ? "FIXED_AMOUNT" : "PERCENTAGE",
-                      )
-                    }
-                    options={[
-                      { label: "Percentage", value: "PERCENTAGE" },
-                      { label: "Fixed amount", value: "FIXED_AMOUNT" },
-                    ]}
-                  />
-                </div>
-                <div style={{ minWidth: 240 }}>
-                  <TextField
-                    label={discountKind === "FIXED_AMOUNT" ? "Amount off" : "Percent off"}
-                    name="discountValue"
-                    type="number"
-                    value={discountValue}
-                    onChange={setDiscountValue}
-                    autoComplete="off"
-                  />
-                </div>
-              </InlineStack>
-
-              <TextField
-                label="Badge text"
-                name="badgeText"
-                value={badgeText}
-                onChange={(value) => {
-                  setBadgeTextTouched(true);
-                  setBadgeText(value);
-                }}
-                autoComplete="off"
-                helpText="This text is used by Discounto for storefront badges."
+              <Select
+                label="Offer"
+                name="offerType"
+                value={offerType}
+                onChange={(value) =>
+                  setOfferType(
+                    value === "FREE_SHIPPING" || value === "DISCOUNT_AND_FREE_SHIPPING"
+                      ? value
+                      : "DISCOUNT",
+                  )
+                }
+                options={[
+                  { label: "Discount", value: "DISCOUNT" },
+                  { label: "Free shipping", value: "FREE_SHIPPING" },
+                  { label: "Discount + free shipping", value: "DISCOUNT_AND_FREE_SHIPPING" },
+                ]}
+                helpText={
+                  includesFreeShipping
+                    ? "Free shipping applies to the whole order when the cart contains a product from this campaign."
+                    : undefined
+                }
               />
+
+              {includesDiscount ? (
+                <>
+                  <InlineStack gap="300" align="start">
+                    <div style={{ minWidth: 240 }}>
+                      <Select
+                        label="Discount type"
+                        name="discountKind"
+                        value={discountKind}
+                        onChange={(value) =>
+                          setDiscountKind(
+                            value === "FIXED_AMOUNT" ? "FIXED_AMOUNT" : "PERCENTAGE",
+                          )
+                        }
+                        options={[
+                          { label: "Percentage", value: "PERCENTAGE" },
+                          { label: "Fixed amount", value: "FIXED_AMOUNT" },
+                        ]}
+                      />
+                    </div>
+                    <div style={{ minWidth: 240 }}>
+                      <TextField
+                        label={discountKind === "FIXED_AMOUNT" ? "Amount off" : "Percent off"}
+                        name="discountValue"
+                        type="number"
+                        value={discountValue}
+                        onChange={setDiscountValue}
+                        autoComplete="off"
+                      />
+                    </div>
+                  </InlineStack>
+
+                  <TextField
+                    label="Badge text"
+                    name="badgeText"
+                    value={badgeText}
+                    onChange={(value) => {
+                      setBadgeTextTouched(true);
+                      setBadgeText(value);
+                    }}
+                    autoComplete="off"
+                    helpText="This text is used by Discounto for storefront badges."
+                  />
+                </>
+              ) : null}
+
+              {includesFreeShipping ? (
+                <TextField
+                  label="Free shipping badge text"
+                  name="freeShippingBadgeText"
+                  value={freeShippingBadgeText}
+                  onChange={setFreeShippingBadgeText}
+                  autoComplete="off"
+                  helpText="Shown on campaign products, for example &quot;Fri frakt&quot;."
+                />
+              ) : null}
+
+              {offerType === "DISCOUNT_AND_FREE_SHIPPING" ? (
+                <Select
+                  label="Badge display"
+                  name="badgeLayout"
+                  value={badgeLayout}
+                  onChange={(value) =>
+                    setBadgeLayout(
+                      value === "COMBINED" || value === "DISCOUNT_ONLY" ? value : "SEPARATE",
+                    )
+                  }
+                  options={[
+                    { label: "Two separate badges", value: "SEPARATE" },
+                    { label: "One combined badge", value: "COMBINED" },
+                    { label: "Discount badge only", value: "DISCOUNT_ONLY" },
+                  ]}
+                  helpText="Where the free shipping badge sits is set in the theme editor."
+                />
+              ) : null}
 
               <Select
                 label="Campaign targets"

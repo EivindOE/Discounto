@@ -102,6 +102,9 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     campaign: {
       id: campaign.id,
       title: campaign.title,
+      offerType: campaign.offerType,
+      freeShippingBadgeText: campaign.freeShippingBadgeText ?? "",
+      badgeLayout: campaign.badgeLayout,
       discountKind: campaign.discountKind ?? undefined,
       discountValue: campaign.discountValue == null ? undefined : String(campaign.discountValue),
       badgeText: campaign.badgeText ?? "",
