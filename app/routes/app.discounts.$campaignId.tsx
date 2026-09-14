@@ -250,6 +250,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       selectedProducts,
       selectedCollections,
       discountProducts: resolvedProducts,
+      freeShippingBadgeText: campaign.freeShippingBadgeText,
       startsAt,
       endsAt,
     });

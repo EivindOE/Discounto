@@ -99,4 +99,41 @@ describe("cartDeliveryOptionsDiscountsGenerateRun", () => {
       ),
     ).toEqual(NO_CHANGES);
   });
+
+  it("uses the configured message on the checkout candidate", () => {
+    const result = cartDeliveryOptionsDiscountsGenerateRun(
+      buildInput({
+        lines: [variantLine(CAMPAIGN_PRODUCT)],
+        metafield: {
+          jsonValue: { productIds: [CAMPAIGN_PRODUCT], collectionIds: [], message: "Fri frakt" },
+        },
+      }),
+    );
+
+    expect(result.operations[0].deliveryDiscountsAdd.candidates[0].message).toBe("Fri frakt");
+  });
+
+  it("falls back to the default message when none is configured", () => {
+    const result = cartDeliveryOptionsDiscountsGenerateRun(
+      buildInput({
+        lines: [variantLine(CAMPAIGN_PRODUCT)],
+        metafield: { jsonValue: { productIds: [CAMPAIGN_PRODUCT], collectionIds: [] } },
+      }),
+    );
+
+    expect(result.operations[0].deliveryDiscountsAdd.candidates[0].message).toBe("Free shipping");
+  });
+
+  it("falls back to the default message when the configured message is blank", () => {
+    const result = cartDeliveryOptionsDiscountsGenerateRun(
+      buildInput({
+        lines: [variantLine(CAMPAIGN_PRODUCT)],
+        metafield: {
+          jsonValue: { productIds: [CAMPAIGN_PRODUCT], collectionIds: [], message: "   " },
+        },
+      }),
+    );
+
+    expect(result.operations[0].deliveryDiscountsAdd.candidates[0].message).toBe("Free shipping");
+  });
 });

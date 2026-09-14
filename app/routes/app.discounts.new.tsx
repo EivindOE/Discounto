@@ -181,6 +181,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       selectedProducts,
       selectedCollections,
       discountProducts: resolvedProducts,
+      freeShippingBadgeText: campaign.freeShippingBadgeText,
       startsAt,
       endsAt,
     });

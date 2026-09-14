@@ -185,6 +185,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         selectedProducts: campaign.products,
         selectedCollections: campaign.collections,
         discountProducts: shopifyDiscountProducts,
+        freeShippingBadgeText: campaign.freeShippingBadgeText,
         startsAt: campaign.startsAt,
         endsAt: campaign.endsAt,
       });

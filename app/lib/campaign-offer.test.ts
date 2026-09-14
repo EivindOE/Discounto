@@ -39,7 +39,7 @@ describe("offer parts", () => {
 });
 
 describe("buildShippingFunctionConfiguration", () => {
-  it("collects unique product and collection ids", () => {
+  it("collects unique product and collection ids and defaults the message", () => {
     expect(
       buildShippingFunctionConfiguration({
         selectedProducts: [
@@ -51,7 +51,40 @@ describe("buildShippingFunctionConfiguration", () => {
     ).toEqual({
       productIds: ["gid://shopify/Product/1"],
       collectionIds: ["gid://shopify/Collection/9"],
+      message: "Free shipping",
     });
+  });
+
+  it("uses the campaign's trimmed free shipping badge text as the message", () => {
+    expect(
+      buildShippingFunctionConfiguration({
+        selectedProducts: [],
+        selectedCollections: [],
+        freeShippingBadgeText: "  Fri frakt  ",
+      }),
+    ).toEqual({
+      productIds: [],
+      collectionIds: [],
+      message: "Fri frakt",
+    });
+  });
+
+  it("falls back to the default message when the badge text is empty or missing", () => {
+    expect(
+      buildShippingFunctionConfiguration({
+        selectedProducts: [],
+        selectedCollections: [],
+        freeShippingBadgeText: "   ",
+      }).message,
+    ).toBe("Free shipping");
+
+    expect(
+      buildShippingFunctionConfiguration({
+        selectedProducts: [],
+        selectedCollections: [],
+        freeShippingBadgeText: null,
+      }).message,
+    ).toBe("Free shipping");
   });
 });
 

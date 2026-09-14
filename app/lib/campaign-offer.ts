@@ -13,6 +13,7 @@ export const DEFAULT_FREE_SHIPPING_BADGE_TEXT = "Free shipping";
 export type ShippingFunctionConfiguration = {
   productIds: string[];
   collectionIds: string[];
+  message: string;
 };
 
 export function normalizeOfferType(value: unknown): CampaignOfferType {
@@ -40,15 +41,20 @@ export function offerIncludesFreeShipping(offerType: CampaignOfferType) {
 export function buildShippingFunctionConfiguration({
   selectedProducts,
   selectedCollections,
+  freeShippingBadgeText,
 }: {
   selectedProducts: Array<{ productGid: string }>;
   selectedCollections: Array<{ collectionGid: string }>;
+  freeShippingBadgeText?: string | null;
 }): ShippingFunctionConfiguration {
+  const trimmedBadgeText = freeShippingBadgeText?.trim();
+
   return {
     productIds: [...new Set(selectedProducts.map((product) => product.productGid))],
     collectionIds: [
       ...new Set(selectedCollections.map((collection) => collection.collectionGid)),
     ],
+    message: trimmedBadgeText ? trimmedBadgeText : DEFAULT_FREE_SHIPPING_BADGE_TEXT,
   };
 }
 

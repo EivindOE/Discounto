@@ -11,6 +11,10 @@ export function cartDeliveryOptionsDiscountsGenerateRun(input) {
   const productIds = new Set(
     Array.isArray(configuration.productIds) ? configuration.productIds : [],
   );
+  const message =
+    typeof configuration.message === "string" && configuration.message.trim()
+      ? configuration.message
+      : FREE_SHIPPING_MESSAGE;
 
   // Collection membership comes from inAnyCollection, which Shopify resolves
   // against the collectionIds input variable read from the same metafield.
@@ -41,7 +45,7 @@ export function cartDeliveryOptionsDiscountsGenerateRun(input) {
         deliveryDiscountsAdd: {
           candidates: [
             {
-              message: FREE_SHIPPING_MESSAGE,
+              message,
               targets,
               value: { percentage: { value: 100 } },
             },
