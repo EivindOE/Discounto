@@ -1,0 +1,21 @@
+{
+  "cart": {
+    "lines": [
+      {
+        "merchandise": {
+          "__typename": "ProductVariant",
+          "product": { "id": "gid://shopify/Product/1", "inAnyCollection": false }
+        }
+      }
+    ],
+    "deliveryGroups": [
+      { "deliveryOptions": [{ "handle": "standard" }] }
+    ]
+  },
+  "discount": {
+    "discountClasses": ["SHIPPING"],
+    "metafield": {
+      "jsonValue": { "productIds": ["gid://shopify/Product/1"], "collectionIds": [] }
+    }
+  }
+}

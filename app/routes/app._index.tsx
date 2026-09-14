@@ -17,6 +17,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { InternalRouteButton } from "../components/InternalRouteButton";
 import { buildCoverageAndUsageSafely } from "../lib/plan-usage.server";
+import { formatCampaignOfferLabel } from "../lib/campaign-offer";
 import { listCampaignsForShop } from "../models/discount.server";
 import { syncPlanFromBilling } from "../models/billing.server";
 import { authenticate } from "../shopify.server";
@@ -49,10 +50,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       status: campaign.status,
       syncStatus: campaign.syncStatus,
       productCount: coverageMap.get(campaign.id)?.length ?? 0,
-      discountLabel:
-        campaign.discountKind === "PERCENTAGE"
-          ? `${campaign.discountValue}%`
-          : `${campaign.discountValue} ${campaign.currencyCode}`,
+      discountLabel: formatCampaignOfferLabel({
+        offerType: campaign.offerType,
+        discountKind: campaign.discountKind,
+        discountValue: campaign.discountValue,
+        currencyCode: campaign.currencyCode,
+      }),
     })),
     themeEditorUrl: `https://${session.shop}/admin/themes/current/editor?context=apps`,
   };

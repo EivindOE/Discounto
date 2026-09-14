@@ -1,5 +1,8 @@
 import type { DiscountKind } from "@prisma/client";
 import prisma from "../db.server";
+import type { CampaignBadgeLayoutType, CampaignOfferType } from "../lib/campaign-offer";
+import type { CampaignOfferFields } from "../lib/campaigns.server";
+import type { CampaignDiscountIds } from "./campaign-discount-sync.server";
 
 export type SelectedProductInput = {
   productGid: string;
@@ -21,11 +24,15 @@ export type CampaignRecord = {
   title: string;
   status: "DRAFT" | "ACTIVE" | "ARCHIVED";
   syncStatus: "DRAFT" | "SYNCED" | "SYNC_FAILED";
-  discountKind: DiscountKind;
-  discountValue: number;
+  offerType: CampaignOfferType;
+  discountKind: DiscountKind | null;
+  discountValue: number | null;
+  freeShippingBadgeText: string | null;
+  badgeLayout: CampaignBadgeLayoutType;
   currencyCode: string;
   badgeText: string | null;
   shopifyDiscountId: string | null;
+  shopifyShippingDiscountId: string | null;
   lastSyncError: string | null;
   startsAt: Date | null;
   endsAt: Date | null;
@@ -101,19 +108,20 @@ export async function listVisibleStorefrontCampaignsForShop(
 export async function createCampaign({
   shop,
   title,
+  offerType,
   discountKind,
   discountValue,
+  freeShippingBadgeText,
+  badgeLayout,
   currencyCode,
   badgeText,
   selectedProducts,
   selectedCollections,
   startsAt,
   endsAt,
-}: {
+}: CampaignOfferFields & {
   shop: string;
   title: string;
-  discountKind: DiscountKind;
-  discountValue: number;
   currencyCode?: string | null;
   badgeText: string | null;
   selectedProducts: SelectedProductInput[];
@@ -127,8 +135,11 @@ export async function createCampaign({
       title,
       status: "DRAFT",
       syncStatus: "DRAFT",
+      offerType,
       discountKind,
       discountValue,
+      freeShippingBadgeText,
+      badgeLayout,
       currencyCode: currencyCode ?? "USD",
       badgeText,
       startsAt: startsAt ?? null,
@@ -161,20 +172,21 @@ export async function updateCampaign({
   campaignId,
   shop,
   title,
+  offerType,
   discountKind,
   discountValue,
+  freeShippingBadgeText,
+  badgeLayout,
   currencyCode,
   badgeText,
   selectedProducts,
   selectedCollections,
   startsAt,
   endsAt,
-}: {
+}: CampaignOfferFields & {
   campaignId: string;
   shop: string;
   title: string;
-  discountKind: DiscountKind;
-  discountValue: number;
   currencyCode?: string | null;
   badgeText: string | null;
   selectedProducts: SelectedProductInput[];
@@ -186,8 +198,11 @@ export async function updateCampaign({
     where: { id: campaignId },
     data: {
       title,
+      offerType,
       discountKind,
       discountValue,
+      freeShippingBadgeText,
+      badgeLayout,
       currencyCode: currencyCode ?? "USD",
       badgeText,
       startsAt: startsAt ?? null,
@@ -221,17 +236,18 @@ export async function updateCampaign({
 
 export async function markCampaignSyncSuccess({
   campaignId,
-  shopifyDiscountId,
+  ids,
 }: {
   campaignId: string;
-  shopifyDiscountId: string;
+  ids: CampaignDiscountIds;
 }) {
   return prisma.discountCampaign.update({
     where: { id: campaignId },
     data: {
       status: "ACTIVE",
       syncStatus: "SYNCED",
-      shopifyDiscountId,
+      shopifyDiscountId: ids.shopifyDiscountId,
+      shopifyShippingDiscountId: ids.shopifyShippingDiscountId,
       lastSyncError: null,
     },
   });
@@ -240,9 +256,11 @@ export async function markCampaignSyncSuccess({
 export async function markCampaignSyncFailure({
   campaignId,
   errorMessage,
+  ids,
 }: {
   campaignId: string;
   errorMessage: string;
+  ids?: CampaignDiscountIds;
 }) {
   return prisma.discountCampaign.update({
     where: { id: campaignId },
@@ -250,6 +268,12 @@ export async function markCampaignSyncFailure({
       status: "DRAFT",
       syncStatus: "SYNC_FAILED",
       lastSyncError: errorMessage,
+      ...(ids
+        ? {
+            shopifyDiscountId: ids.shopifyDiscountId,
+            shopifyShippingDiscountId: ids.shopifyShippingDiscountId,
+          }
+        : {}),
     },
   });
 }
@@ -265,6 +289,7 @@ export async function markCampaignArchived({
       status: "ARCHIVED",
       syncStatus: "DRAFT",
       shopifyDiscountId: null,
+      shopifyShippingDiscountId: null,
       lastSyncError: null,
     },
   });
@@ -272,17 +297,18 @@ export async function markCampaignArchived({
 
 export async function markCampaignActive({
   campaignId,
-  shopifyDiscountId,
+  ids,
 }: {
   campaignId: string;
-  shopifyDiscountId: string;
+  ids: CampaignDiscountIds;
 }) {
   return prisma.discountCampaign.update({
     where: { id: campaignId },
     data: {
       status: "ACTIVE",
       syncStatus: "SYNCED",
-      shopifyDiscountId,
+      shopifyDiscountId: ids.shopifyDiscountId,
+      shopifyShippingDiscountId: ids.shopifyShippingDiscountId,
       lastSyncError: null,
     },
   });

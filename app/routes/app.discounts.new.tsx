@@ -17,14 +17,17 @@ import {
   markCampaignSyncSuccess,
 } from "../models/discount.server";
 import { syncPlanFromBilling } from "../models/billing.server";
-import { createAutomaticDiscountInShopify } from "../models/shopify-discounts.server";
+import {
+  CampaignSyncError,
+  syncCampaignDiscountsInShopify,
+} from "../models/campaign-discount-sync.server";
 import {
   createCollectionResolutionCache,
   resolveCampaignTargetProducts,
 } from "../models/campaign-targets.server";
 import { authenticate } from "../shopify.server";
 import {
-  normalizeDiscountKind,
+  parseCampaignOfferFields,
   parseOptionalIsoDate,
   parseSelectedCollections,
   parseSelectedProducts,
@@ -80,8 +83,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const formData = await request.formData();
 
   const title = String(formData.get("title") ?? "").trim();
-  const discountKind = normalizeDiscountKind(formData.get("discountKind"));
-  const discountValue = Number(formData.get("discountValue") ?? 0);
+  const offer = parseCampaignOfferFields(formData);
   const badgeText = String(formData.get("badgeText") ?? "").trim();
   const selectedProducts = parseSelectedProducts(formData.get("selectedProducts"));
   const selectedCollections = parseSelectedCollections(formData.get("selectedCollections"));
@@ -94,8 +96,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { error: "Add a campaign name before saving." } satisfies ActionData;
   }
 
-  if (!Number.isFinite(discountValue) || discountValue <= 0) {
-    return { error: "Enter a discount value greater than 0." } satisfies ActionData;
+  if (!offer.ok) {
+    return { error: offer.error } satisfies ActionData;
   }
 
   if (selectedProducts.length === 0 && selectedCollections.length === 0) {
@@ -153,8 +155,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const campaign = await createCampaign({
     shop: session.shop,
     title,
-    discountKind,
-    discountValue,
+    ...offer.fields,
     currencyCode,
     badgeText: badgeText || null,
     selectedProducts,
@@ -170,20 +171,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     cache: collectionCache,
   });
   try {
-    const { shopifyDiscountId } = await createAutomaticDiscountInShopify({
+    const ids = await syncCampaignDiscountsInShopify({
       admin,
+      existingIds: { shopifyDiscountId: null, shopifyShippingDiscountId: null },
       title,
+      offerType: campaign.offerType,
       discountKind: campaign.discountKind,
-      discountValue,
-      selectedProducts: resolvedProducts,
+      discountValue: campaign.discountValue,
+      selectedProducts,
       selectedCollections,
+      discountProducts: resolvedProducts,
+      freeShippingBadgeText: campaign.freeShippingBadgeText,
       startsAt,
       endsAt,
     });
 
     await markCampaignSyncSuccess({
       campaignId: campaign.id,
-      shopifyDiscountId,
+      ids,
     });
 
     return redirect("/app/discounts");
@@ -196,6 +201,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     await markCampaignSyncFailure({
       campaignId: campaign.id,
       errorMessage: message,
+      ids: error instanceof CampaignSyncError ? error.ids : undefined,
     });
 
     return {

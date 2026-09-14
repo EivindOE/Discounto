@@ -31,6 +31,12 @@ url = "/proxy/better-discounts"
 subpath = "better-discounts"
 prefix = "apps"
 
+[discount.metafields.app.function-configuration]
+type = "json"
+name = "Discounto function configuration"
+access.admin = "merchant_read"
+access.storefront = "none"
+
 [auth]
 redirect_urls = [
   "https://discounto.oekland.no/auth/callback",
