@@ -83,7 +83,7 @@ describe("createShippingDiscountInShopify", () => {
     expect(result).toEqual({ shopifyDiscountId: "gid://shopify/DiscountAutomaticNode/20" });
     expect(calls[0].query).toContain("discountAutomaticAppCreate");
     expect(calls[0].variables?.automaticAppDiscount).toEqual({
-      title: "Summer",
+      title: "Summer – Free shipping",
       startsAt: "2026-09-15T08:00:00.000Z",
       functionHandle: "discounto-free-shipping",
       discountClasses: ["SHIPPING"],
@@ -150,6 +150,9 @@ describe("updateShippingDiscountInShopify", () => {
     expect(calls[0].query).toContain("discountAutomaticAppUpdate");
     expect(calls[0].variables?.id).toBe("gid://shopify/DiscountAutomaticNode/20");
     expect(calls[0].variables?.automaticAppDiscount).not.toHaveProperty("functionHandle");
+    expect((calls[0].variables?.automaticAppDiscount as { title: string }).title).toBe(
+      "Summer v2 – Free shipping",
+    );
     expect(calls[1].query).toContain("metafieldsSet");
     expect(calls[1].variables?.metafields).toEqual([
       {
