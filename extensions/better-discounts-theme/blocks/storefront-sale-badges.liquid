@@ -42,6 +42,7 @@
     showImageBadge: {{ block.settings.show_image_badge | json }},
     showInlineBadge: {{ block.settings.show_inline_badge | json }},
     showSavingsLine: {{ block.settings.show_savings_line | json }},
+    undiscountedAmounts: {{ shop.metafields.discounto.undiscounted_amounts.value | json }} || {},
     debug: {{ request.design_mode | json }}
   };
 </script>

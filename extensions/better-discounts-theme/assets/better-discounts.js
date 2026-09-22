@@ -76,18 +76,32 @@
     );
   }
 
-  function computeDiscountAmounts(basePrice, campaign) {
+  // Part of a product's shown price that the campaign discount never reaches,
+  // e.g. an add-on that is sold as its own cart line. Other apps publish it per
+  // product handle in the shop metafield discounto.undiscounted_amounts.
+  function getUndiscountedAmount(config, handle) {
+    const amounts = config && config.undiscountedAmounts;
+    if (!handle || !amounts || typeof amounts !== "object") return 0;
+
+    const value = Number(amounts[handle]);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  }
+
+  function computeDiscountAmounts(basePrice, campaign, undiscountedAmount = 0) {
     if (!campaign || !basePrice || basePrice <= 0) return null;
 
+    const discountableBase = Math.max(0, basePrice - undiscountedAmount);
+    if (discountableBase <= 0) return null;
+
     if (campaign.discountKind === "FIXED_AMOUNT") {
-      const savingsAmount = Math.min(basePrice, campaign.discountValue);
+      const savingsAmount = Math.min(discountableBase, campaign.discountValue);
       const discountedPrice = Math.max(0, basePrice - savingsAmount);
       const savingsPercent = basePrice > 0 ? Math.round((savingsAmount / basePrice) * 100) : 0;
 
       return { savingsAmount, discountedPrice, savingsPercent };
     }
 
-    const savingsAmount = basePrice * (campaign.discountValue / 100);
+    const savingsAmount = discountableBase * (campaign.discountValue / 100);
     const discountedPrice = Math.max(0, basePrice - savingsAmount);
     const savingsPercent = Math.round(campaign.discountValue);
 
@@ -417,9 +431,13 @@
     return { byHandle };
   }
 
-  function findCampaignForCard(card, campaignLookup) {
+  function findCardHandle(card) {
     const href = card.querySelector("a[href*=\"/products/\"]")?.getAttribute("href");
-    const handle = parseHandleFromHref(href);
+    return parseHandleFromHref(href);
+  }
+
+  function findCampaignForCard(card, campaignLookup) {
+    const handle = findCardHandle(card);
 
     if (!handle) return null;
     return campaignLookup.byHandle.get(handle) ?? null;
@@ -660,7 +678,11 @@
       const basePrice =
         Number(priceHost.dataset.bdOriginalBasePrice) ||
         findCurrentCardPrice(priceHost);
-      const amounts = computeDiscountAmounts(basePrice, campaign);
+      const amounts = computeDiscountAmounts(
+        basePrice,
+        campaign,
+        getUndiscountedAmount(config, findCardHandle(card)),
+      );
 
       if (basePrice && !priceHost.dataset.bdOriginalBasePrice) {
         priceHost.dataset.bdOriginalBasePrice = String(basePrice);
@@ -799,7 +821,11 @@
         Number(livePriceHost?.dataset.bdOriginalBasePrice) ||
         currentBasePrice ||
         fallbackPriceCents / 100;
-      const amounts = computeDiscountAmounts(basePrice, campaign);
+      const amounts = computeDiscountAmounts(
+        basePrice,
+        campaign,
+        getUndiscountedAmount(config, handle),
+      );
 
       if (!amounts) return;
 
