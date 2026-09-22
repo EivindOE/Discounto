@@ -417,6 +417,33 @@
     return [...new Set(hosts)].filter(Boolean);
   }
 
+  function isPriceManagedElsewhere(handle) {
+    return Array.from(document.querySelectorAll("[data-discounto-managed-price]")).some(
+      (element) => element.getAttribute("data-discounto-managed-price") === handle,
+    );
+  }
+
+  // Lets other storefront apps price their own UI from the same campaigns:
+  // window.Discounto.getCampaign(handle), plus a "discounto:ready" event.
+  function publishCampaigns(campaignLookup) {
+    const api = {
+      getCampaign(handle) {
+        const campaign = campaignLookup.byHandle.get(handle);
+        if (!campaign) return null;
+
+        return {
+          id: campaign.id,
+          offerType: campaign.offerType,
+          discountKind: campaign.discountKind,
+          discountValue: campaign.discountValue,
+        };
+      },
+    };
+
+    window.Discounto = api;
+    document.dispatchEvent(new CustomEvent("discounto:ready", { detail: api }));
+  }
+
   function buildCampaignLookup(campaigns) {
     const byHandle = new Map();
 
@@ -788,7 +815,10 @@
       if (!handle) return;
 
       const campaign = campaignLookup.byHandle.get(handle);
-      const livePriceHosts = findRelevantProductPriceHosts(block);
+      // Another app (e.g. a bundle builder) owns this product's price and reads
+      // the campaign from window.Discounto; only the badge is ours then.
+      const priceManagedElsewhere = isPriceManagedElsewhere(handle);
+      const livePriceHosts = priceManagedElsewhere ? [] : findRelevantProductPriceHosts(block);
       const livePriceHost = livePriceHosts[0] || null;
 
       if (!campaign) {
@@ -835,7 +865,8 @@
       const savingsPrefix = block.getAttribute("data-bd-savings-prefix") || "";
       const showBadge = block.getAttribute("data-bd-show-badge") === "true";
       const showSavingsLine = block.getAttribute("data-bd-show-savings-line") === "true";
-      const showPriceRow = block.getAttribute("data-bd-show-price-row") === "true";
+      const showPriceRow =
+        !priceManagedElsewhere && block.getAttribute("data-bd-show-price-row") === "true";
 
       livePriceHosts.forEach((host) => {
         if (host && !host.dataset.bdOriginalBasePrice) {
@@ -1063,6 +1094,7 @@
 
     const campaignLookup = await loadCampaignLookup(config);
     log(config, "Loaded campaign lookup", campaignLookup);
+    publishCampaigns(campaignLookup);
 
     scanCards(config, campaignLookup, document);
     applyCampaignToProductBlocks(config, campaignLookup);
