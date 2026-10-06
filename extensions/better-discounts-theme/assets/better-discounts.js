@@ -417,10 +417,19 @@
     return [...new Set(hosts)].filter(Boolean);
   }
 
-  function isPriceManagedElsewhere(handle) {
-    return Array.from(document.querySelectorAll("[data-discounto-managed-price]")).some(
-      (element) => element.getAttribute("data-discounto-managed-price") === handle,
+  function findPriceManager(handle) {
+    return (
+      Array.from(document.querySelectorAll("[data-discounto-managed-price]")).find(
+        (element) => element.getAttribute("data-discounto-managed-price") === handle,
+      ) || null
     );
+  }
+
+  // The price the managing app's campaign discount applies to, for its current
+  // selection. It already leaves out amounts the discount never reaches.
+  function getManagedBasePrice(manager) {
+    const value = Number(manager?.getAttribute("data-discounto-base-price"));
+    return Number.isFinite(value) && value > 0 ? value : 0;
   }
 
   // Lets other storefront apps price their own UI from the same campaigns:
@@ -817,7 +826,8 @@
       const campaign = campaignLookup.byHandle.get(handle);
       // Another app (e.g. a bundle builder) owns this product's price and reads
       // the campaign from window.Discounto; only the badge is ours then.
-      const priceManagedElsewhere = isPriceManagedElsewhere(handle);
+      const priceManager = findPriceManager(handle);
+      const priceManagedElsewhere = Boolean(priceManager);
       const livePriceHosts = priceManagedElsewhere ? [] : findRelevantProductPriceHosts(block);
       const livePriceHost = livePriceHosts[0] || null;
 
@@ -845,16 +855,20 @@
         return;
       }
 
+      // data-bd-price-cents is the variant the page loaded with, so it goes
+      // stale when the shopper picks another size on a managed price.
+      const managedBasePrice = getManagedBasePrice(priceManager);
       const fallbackPriceCents = Number(block.getAttribute("data-bd-price-cents") || 0);
       const currentBasePrice = findCurrentCardPrice(livePriceHost);
       const basePrice =
+        managedBasePrice ||
         Number(livePriceHost?.dataset.bdOriginalBasePrice) ||
         currentBasePrice ||
         fallbackPriceCents / 100;
       const amounts = computeDiscountAmounts(
         basePrice,
         campaign,
-        getUndiscountedAmount(config, handle),
+        managedBasePrice ? 0 : getUndiscountedAmount(config, handle),
       );
 
       if (!amounts) return;
